@@ -103,6 +103,9 @@
     #start-btn {
       background: var(--accent);
       color: #fff;
+      height: 34px;
+      padding-top: 0;
+      padding-bottom: 0;
     }
     #start-btn:hover:not(:disabled) { background: var(--accent-hover); }
     #start-btn.recording {
@@ -111,7 +114,8 @@
     #start-btn.recording:hover { background: #a93226; }
 
     #lang-select {
-      padding: 6px 8px;
+      padding: 0 8px;
+      height: 34px;
       border: 1px solid var(--toolbar-border);
       border-radius: 6px;
       background: #fff;
@@ -555,24 +559,6 @@ const TextArea = (() => {
   let autoScrollEnabled = true;
   let interimSpan = null;
   let interimPara = null;
-  let lastFinalPara = null;   // reference to last committed <p>, for punctuation patching
-  let lastFinalTime = 0;      // timestamp of last appendFinal call
-
-  // Punctuation helpers
-  const PUNCT_RE = /[。！？，、…,.!?]$/;
-  const QUESTION_RE = /[嗎呢吧啊喔哦]$/;
-  function _patchPrevPunct(gapMs) {
-    if (!lastFinalPara) return;
-    const txt = lastFinalPara.textContent;
-    if (!txt || PUNCT_RE.test(txt)) return;
-    if (gapMs > 1500) lastFinalPara.textContent = txt + '。';
-    else if (gapMs > 600) lastFinalPara.textContent = txt + '，';
-  }
-  function _trailPunct(text) {
-    if (!text || PUNCT_RE.test(text)) return text;
-    if (QUESTION_RE.test(text)) return text + '？';
-    return text;
-  }
 
   function _ensureInterimPara() {
     if (!interimPara || !el.contains(interimPara)) {
@@ -589,11 +575,8 @@ const TextArea = (() => {
     }
   }
 
-  function appendFinal(text, gapMs) {
+  function appendFinal(text) {
     if (!text) return;
-
-    // Patch punctuation onto previous paragraph based on pause gap
-    if (gapMs !== undefined) _patchPrevPunct(gapMs);
 
     // Remove interim para temporarily
     if (interimPara && el.contains(interimPara)) {
@@ -604,10 +587,8 @@ const TextArea = (() => {
 
     // Append the final text as a new paragraph
     const p = document.createElement('p');
-    p.textContent = _trailPunct(text.trim());
+    p.textContent = text;
     el.appendChild(p);
-    lastFinalPara = p;
-    lastFinalTime = Date.now();
 
     // Re-create interim para at the end
     _ensureInterimPara();
@@ -697,7 +678,6 @@ const SpeechManager = (() => {
   const MAX_RECONNECT = 8;
   let lastRestartTime = 0;
   let errorFired = false;   // flag: onerror fired before onend
-  let lastResultTime = 0;   // for punctuation gap tracking
 
   function _getLang() {
     return document.getElementById('lang-select').value;
@@ -720,12 +700,7 @@ const SpeechManager = (() => {
         if (event.results[i].isFinal) final += t;
         else interim += t;
       }
-      const now = Date.now();
-      const gap = lastResultTime > 0 ? now - lastResultTime : 0;
-      if (final) {
-        lastResultTime = now;
-        TextArea.appendFinal(final, gap);
-      }
+      if (final) TextArea.appendFinal(final);
       if (interim) TextArea.updateInterim(interim);
       _resetSilenceTimer();
       reconnectCount = 0; // successful result, reset counter
@@ -791,7 +766,6 @@ const SpeechManager = (() => {
     if (isActive) return;
     errorFired = false;
     reconnectCount = 0;
-    lastResultTime = 0;
     lastRestartTime = Date.now();
     isActive = true;
     recognition = _createRecognition();
