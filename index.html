@@ -201,7 +201,6 @@
     }
     .interim {
       color: var(--interim-color);
-      font-style: italic;
     }
 
     /* ── Jump to bottom button ── */
@@ -388,7 +387,7 @@
 <div id="toolbar">
   <div class="left-group">
     <span id="rec-dot"></span>
-    <button class="btn" id="start-btn">▶ 啟動語音轉錄</button>
+    <button class="btn" id="start-btn">▶ 啟動</button>
     <select id="lang-select">
       <option value="zh-TW">繁體中文</option>
       <option value="en-US">English</option>
@@ -397,7 +396,7 @@
     </select>
   </div>
   <div class="right-group">
-    <button id="author-btn" title="切換黑底黃字模式">程式設計：徐承佑</button>
+    <button id="author-btn" title="切換黑底黃字模式">作者:徐承佑</button>
     <button class="btn" id="settings-btn" title="設定">⚙</button>
   </div>
 </div>
@@ -555,9 +554,25 @@ const TextArea = (() => {
   const el = document.getElementById('transcript');
   let autoScrollEnabled = true;
   let interimSpan = null;
-  // Track the last committed paragraph so we can ensure interim span stays at bottom
-  // We use a dedicated "interim paragraph" at the end
   let interimPara = null;
+  let lastFinalPara = null;   // reference to last committed <p>, for punctuation patching
+  let lastFinalTime = 0;      // timestamp of last appendFinal call
+
+  // Punctuation helpers
+  const PUNCT_RE = /[。！？，、…,.!?]$/;
+  const QUESTION_RE = /[嗎呢吧啊喔哦]$/;
+  function _patchPrevPunct(gapMs) {
+    if (!lastFinalPara) return;
+    const txt = lastFinalPara.textContent;
+    if (!txt || PUNCT_RE.test(txt)) return;
+    if (gapMs > 1500) lastFinalPara.textContent = txt + '。';
+    else if (gapMs > 600) lastFinalPara.textContent = txt + '，';
+  }
+  function _trailPunct(text) {
+    if (!text || PUNCT_RE.test(text)) return text;
+    if (QUESTION_RE.test(text)) return text + '？';
+    return text;
+  }
 
   function _ensureInterimPara() {
     if (!interimPara || !el.contains(interimPara)) {
@@ -574,8 +589,12 @@ const TextArea = (() => {
     }
   }
 
-  function appendFinal(text) {
+  function appendFinal(text, gapMs) {
     if (!text) return;
+
+    // Patch punctuation onto previous paragraph based on pause gap
+    if (gapMs !== undefined) _patchPrevPunct(gapMs);
+
     // Remove interim para temporarily
     if (interimPara && el.contains(interimPara)) {
       el.removeChild(interimPara);
@@ -585,8 +604,10 @@ const TextArea = (() => {
 
     // Append the final text as a new paragraph
     const p = document.createElement('p');
-    p.textContent = text;
+    p.textContent = _trailPunct(text.trim());
     el.appendChild(p);
+    lastFinalPara = p;
+    lastFinalTime = Date.now();
 
     // Re-create interim para at the end
     _ensureInterimPara();
@@ -676,6 +697,7 @@ const SpeechManager = (() => {
   const MAX_RECONNECT = 8;
   let lastRestartTime = 0;
   let errorFired = false;   // flag: onerror fired before onend
+  let lastResultTime = 0;   // for punctuation gap tracking
 
   function _getLang() {
     return document.getElementById('lang-select').value;
@@ -698,7 +720,12 @@ const SpeechManager = (() => {
         if (event.results[i].isFinal) final += t;
         else interim += t;
       }
-      if (final)   TextArea.appendFinal(final);
+      const now = Date.now();
+      const gap = lastResultTime > 0 ? now - lastResultTime : 0;
+      if (final) {
+        lastResultTime = now;
+        TextArea.appendFinal(final, gap);
+      }
       if (interim) TextArea.updateInterim(interim);
       _resetSilenceTimer();
       reconnectCount = 0; // successful result, reset counter
@@ -764,6 +791,7 @@ const SpeechManager = (() => {
     if (isActive) return;
     errorFired = false;
     reconnectCount = 0;
+    lastResultTime = 0;
     lastRestartTime = Date.now();
     isActive = true;
     recognition = _createRecognition();
@@ -825,7 +853,7 @@ const UI = (() => {
 
   function stopRecordingUI() {
     const btn = document.getElementById('start-btn');
-    btn.textContent = '▶ 啟動語音轉錄';
+    btn.textContent = '▶ 啟動';
     btn.classList.remove('recording');
     document.getElementById('rec-dot').classList.remove('active');
     TextArea.setEditable(true);
