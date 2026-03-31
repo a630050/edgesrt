@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <title>語音轉錄</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-color: #ffffff;
+      --fg-color: #1a1a1a;
+      --font-family: 'DFKai-SB', serif;
+      --font-size: 20px;
+      --interim-color: #999999;
+      --accent: #0078d4;
+      --accent-hover: #006ab5;
+      --toolbar-bg: #f0f0f0;
+      --toolbar-border: #d0d0d0;
+      --settings-bg: #fafafa;
+      --settings-border: #e0e0e0;
+      --toast-bg: rgba(30,30,30,0.9);
+    }
+
+    html, body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      display: flex;
+      flex-direction: column;
+      font-family: system-ui, sans-serif;
+      background: #e8e8e8;
+    }
+
+    /* ── Toolbar ── */
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: var(--toolbar-bg);
+      border-bottom: 1px solid var(--toolbar-border);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+      min-height: 50px;
+    }
+
+    #toolbar .left-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      min-width: 0;
+    }
+
+    #toolbar .right-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    #rec-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: transparent;
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+    #rec-dot.active {
+      background: #e00;
+      animation: pulse 1.1s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.4; transform: scale(0.75); }
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 7px 14px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      transition: background 0.15s, opacity 0.15s;
+      white-space: nowrap;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .btn:active { opacity: 0.75; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    #start-btn {
+      background: var(--accent);
+      color: #fff;
+    }
+    #start-btn:hover:not(:disabled) { background: var(--accent-hover); }
+    #start-btn.recording {
+      background: #c0392b;
+    }
+    #start-btn.recording:hover { background: #a93226; }
+
+    #lang-select {
+      padding: 6px 8px;
+      border: 1px solid var(--toolbar-border);
+      border-radius: 6px;
+      background: #fff;
+      font-size: 14px;
+      cursor: pointer;
+      max-width: 120px;
+    }
+
+    #author-btn {
+      background: transparent;
+      color: #888;
+      border: 1px solid var(--toolbar-border);
+      padding: 5px 8px;
+      font-size: 11px;
+      border-radius: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s, color 0.15s;
+      line-height: 1.3;
+    }
+    #author-btn:hover { background: #e8e4d0; color: #555; }
+    #author-btn.night-mode {
+      background: #222;
+      color: #ffd700;
+      border-color: #555;
+    }
+    #author-btn.night-mode:hover { background: #333; }
+
+    #settings-btn {
+      background: transparent;
+      color: #555;
+      border: 1px solid var(--toolbar-border);
+      padding: 7px 10px;
+      font-size: 16px;
+    }
+    #settings-btn:hover { background: #e0e0e0; }
+
+    /* ── API warning banner ── */
+    #api-warning {
+      display: none;
+      background: #fff3cd;
+      color: #856404;
+      border-bottom: 1px solid #ffc107;
+      padding: 8px 14px;
+      font-size: 13px;
+      flex-shrink: 0;
+    }
+    #api-warning.visible { display: block; }
+
+    /* ── Main transcript area ── */
+    #main {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+    }
+
+    #transcript {
+      width: 100%;
+      height: 100%;
+      overflow-y: auto;
+      padding: 18px 20px 80px;
+      background: var(--bg-color);
+      color: var(--fg-color);
+      font-family: var(--font-family);
+      font-size: var(--font-size);
+      line-height: 1.75;
+      outline: none;
+      word-break: break-word;
+      white-space: pre-wrap;
+      caret-color: var(--fg-color);
+      transition: box-shadow 0.3s;
+    }
+    #transcript.recording-glow {
+      box-shadow: inset 0 0 0 2px var(--accent);
+    }
+    #transcript[contenteditable="false"] {
+      cursor: default;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    #transcript p {
+      min-height: 1.75em;
+      margin: 0;
+    }
+    #transcript p + p {
+      margin-top: 2px;
+    }
+    .interim {
+      color: var(--interim-color);
+      font-style: italic;
+    }
+
+    /* ── Jump to bottom button ── */
+    #jump-btn {
+      display: none;
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      transition: background 0.15s, transform 0.1s;
+      z-index: 10;
+      line-height: 1;
+    }
+    #jump-btn:hover { background: var(--accent-hover); }
+    #jump-btn:active { transform: scale(0.92); }
+
+    /* ── Settings Panel ── */
+    #settings-panel {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: min(320px, 90vw);
+      height: 100%;
+      background: var(--settings-bg);
+      border-left: 1px solid var(--settings-border);
+      box-shadow: -4px 0 16px rgba(0,0,0,0.15);
+      transform: translateX(100%);
+      transition: transform 0.25s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    #settings-panel.open {
+      transform: translateX(0);
+    }
+
+    #settings-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.3);
+      z-index: 99;
+    }
+    #settings-overlay.visible { display: block; }
+
+    .settings-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--settings-border);
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+      flex-shrink: 0;
+    }
+    #settings-close {
+      background: none;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      color: #666;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    #settings-close:hover { background: #e8e8e8; }
+
+    .settings-body {
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .setting-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .setting-row label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #555;
+    }
+    .setting-row .control-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .color-preview {
+      width: 36px;
+      height: 36px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    input[type="color"] {
+      width: 0;
+      height: 0;
+      opacity: 0;
+      position: absolute;
+    }
+
+    #set-font {
+      width: 100%;
+      padding: 7px 8px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 14px;
+      background: #fff;
+    }
+
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+    }
+    #set-size-out {
+      font-size: 13px;
+      color: #555;
+      min-width: 36px;
+      text-align: right;
+    }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: var(--toast-bg);
+      color: #fff;
+      padding: 10px 20px;
+      border-radius: 24px;
+      font-size: 14px;
+      z-index: 200;
+      transition: transform 0.3s, opacity 0.3s;
+      opacity: 0;
+      pointer-events: none;
+      white-space: nowrap;
+      max-width: 90vw;
+      text-align: center;
+    }
+    #toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+
+<!-- UA Spoofing: attempt to present as Edge desktop -->
+<script>
+  (function() {
+    const desktopUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0';
+    try {
+      Object.defineProperty(navigator, 'userAgent', { value: desktopUA, configurable: true, writable: false });
+    } catch(e) {}
+    try {
+      Object.defineProperty(navigator, 'platform', { value: 'Win32', configurable: true });
+    } catch(e) {}
+    try {
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 0, configurable: true });
+    } catch(e) {}
+  })();
+</script>
+
+<!-- Toolbar -->
+<div id="toolbar">
+  <div class="left-group">
+    <span id="rec-dot"></span>
+    <button class="btn" id="start-btn">▶ 啟動語音轉錄</button>
+    <select id="lang-select">
+      <option value="zh-TW">繁體中文</option>
+      <option value="en-US">English</option>
+      <option value="ja-JP">日本語</option>
+      <option value="ko-KR">한국어</option>
+    </select>
+  </div>
+  <div class="right-group">
+    <button id="author-btn" title="切換黑底黃字模式">程式設計：徐承佑</button>
+    <button class="btn" id="settings-btn" title="設定">⚙</button>
+  </div>
+</div>
+
+<!-- API warning -->
+<div id="api-warning">⚠ 此瀏覽器不支援語音辨識 API，請使用 Microsoft Edge 或 Chrome 桌面版。</div>
+
+<!-- Transcript -->
+<div id="main">
+  <div id="transcript" contenteditable="true" spellcheck="false"
+       role="textbox" aria-multiline="true" aria-label="轉錄文字"></div>
+  <button id="jump-btn" title="跳至最新">↓</button>
+</div>
+
+<!-- Settings overlay -->
+<div id="settings-overlay"></div>
+
+<!-- Settings Panel -->
+<aside id="settings-panel" aria-label="顯示設定">
+  <div class="settings-header">
+    <span>顯示設定</span>
+    <button id="settings-close">✕</button>
+  </div>
+  <div class="settings-body">
+
+    <div class="setting-row">
+      <label>背景顏色</label>
+      <div class="control-row">
+        <div class="color-preview" id="bg-preview" title="點擊選色"></div>
+        <input type="color" id="set-bg" value="#ffffff">
+        <span style="font-size:13px;color:#888;">點擊色塊選色</span>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <label>字體顏色</label>
+      <div class="control-row">
+        <div class="color-preview" id="fg-preview" title="點擊選色"></div>
+        <input type="color" id="set-fg" value="#1a1a1a">
+        <span style="font-size:13px;color:#888;">點擊色塊選色</span>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <label>字體</label>
+      <select id="set-font">
+        <option value="'DFKai-SB', 'BiauKai', serif">標楷體</option>
+        <option value="'Microsoft YaHei', 'PingFang TC', 'Noto Sans TC', sans-serif">思源黑體／微軟雅黑</option>
+      </select>
+    </div>
+
+    <div class="setting-row">
+      <label>字體大小</label>
+      <div class="slider-row">
+        <input type="range" id="set-size" min="14" max="48" step="1" value="20">
+        <output id="set-size-out">20px</output>
+      </div>
+    </div>
+
+  </div>
+</aside>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+'use strict';
+
+// ─────────────────────────────────────────────
+// SettingsManager
+// ─────────────────────────────────────────────
+const SettingsManager = (() => {
+  const STORAGE_KEY = 'edgesrt_settings';
+  const DEFAULTS = {
+    bgColor: '#ffffff',
+    fgColor: '#1a1a1a',
+    fontFamily: "'DFKai-SB', 'BiauKai', serif",
+    fontSize: 20
+  };
+
+  let current = { ...DEFAULTS };
+
+  function applyAll(s) {
+    const root = document.documentElement;
+    root.style.setProperty('--bg-color', s.bgColor);
+    root.style.setProperty('--fg-color', s.fgColor);
+    root.style.setProperty('--font-family', s.fontFamily);
+    root.style.setProperty('--font-size', s.fontSize + 'px');
+    // sync color previews
+    document.getElementById('bg-preview').style.background = s.bgColor;
+    document.getElementById('fg-preview').style.background = s.fgColor;
+  }
+
+  function save(partial) {
+    current = { ...current, ...partial };
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(current)); } catch(e) {}
+    applyAll(current);
+  }
+
+  function init() {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) current = { ...DEFAULTS, ...JSON.parse(stored) };
+    } catch(e) {}
+
+    applyAll(current);
+
+    // Set input initial values
+    document.getElementById('set-bg').value = current.bgColor;
+    document.getElementById('set-fg').value = current.fgColor;
+
+    const fontSel = document.getElementById('set-font');
+    // find matching option
+    for (let opt of fontSel.options) {
+      if (opt.value === current.fontFamily) { opt.selected = true; break; }
+    }
+
+    const sizeSlider = document.getElementById('set-size');
+    sizeSlider.value = current.fontSize;
+    document.getElementById('set-size-out').value = current.fontSize + 'px';
+
+    // Wire events
+    // Color pickers triggered via hidden <input type="color">
+    document.getElementById('bg-preview').addEventListener('click', () => {
+      document.getElementById('set-bg').click();
+    });
+    document.getElementById('fg-preview').addEventListener('click', () => {
+      document.getElementById('set-fg').click();
+    });
+
+    document.getElementById('set-bg').addEventListener('input', e => {
+      save({ bgColor: e.target.value });
+    });
+    document.getElementById('set-fg').addEventListener('input', e => {
+      save({ fgColor: e.target.value });
+    });
+    document.getElementById('set-font').addEventListener('change', e => {
+      save({ fontFamily: e.target.value });
+    });
+    document.getElementById('set-size').addEventListener('input', e => {
+      const v = parseInt(e.target.value, 10);
+      document.getElementById('set-size-out').value = v + 'px';
+      save({ fontSize: v });
+    });
+  }
+
+  return { init, save };
+})();
+
+
+// ─────────────────────────────────────────────
+// TextArea
+// ─────────────────────────────────────────────
+const TextArea = (() => {
+  const el = document.getElementById('transcript');
+  let autoScrollEnabled = true;
+  let interimSpan = null;
+  // Track the last committed paragraph so we can ensure interim span stays at bottom
+  // We use a dedicated "interim paragraph" at the end
+  let interimPara = null;
+
+  function _ensureInterimPara() {
+    if (!interimPara || !el.contains(interimPara)) {
+      interimPara = document.createElement('p');
+      interimSpan = document.createElement('span');
+      interimSpan.className = 'interim';
+      interimPara.appendChild(interimSpan);
+      el.appendChild(interimPara);
+    }
+    if (!interimSpan || !interimPara.contains(interimSpan)) {
+      interimSpan = document.createElement('span');
+      interimSpan.className = 'interim';
+      interimPara.appendChild(interimSpan);
+    }
+  }
+
+  function appendFinal(text) {
+    if (!text) return;
+    // Remove interim para temporarily
+    if (interimPara && el.contains(interimPara)) {
+      el.removeChild(interimPara);
+    }
+    interimPara = null;
+    interimSpan = null;
+
+    // Append the final text as a new paragraph
+    const p = document.createElement('p');
+    p.textContent = text;
+    el.appendChild(p);
+
+    // Re-create interim para at the end
+    _ensureInterimPara();
+
+    if (autoScrollEnabled) scrollToBottom();
+  }
+
+  function updateInterim(text) {
+    _ensureInterimPara();
+    interimSpan.textContent = text;
+    if (autoScrollEnabled) scrollToBottom();
+  }
+
+  function commitInterim() {
+    if (interimSpan && interimSpan.textContent.trim()) {
+      const text = interimSpan.textContent;
+      // Clear span first to avoid duplicate
+      interimSpan.textContent = '';
+      appendFinal(text);
+    }
+    clearInterim();
+  }
+
+  function clearInterim() {
+    if (interimSpan) interimSpan.textContent = '';
+    // Remove the empty interim para cleanly
+    if (interimPara && el.contains(interimPara) &&
+        interimPara.textContent.trim() === '') {
+      el.removeChild(interimPara);
+    }
+    interimPara = null;
+    interimSpan = null;
+  }
+
+  function setEditable(bool) {
+    el.contentEditable = bool ? 'true' : 'false';
+    if (bool) {
+      el.classList.remove('recording-glow');
+    } else {
+      el.classList.add('recording-glow');
+    }
+  }
+
+  function scrollToBottom() {
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function enableAutoScroll() {
+    autoScrollEnabled = true;
+    scrollToBottom();
+    document.getElementById('jump-btn').style.display = 'none';
+  }
+
+  function _onScroll() {
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+    if (atBottom) {
+      autoScrollEnabled = true;
+      document.getElementById('jump-btn').style.display = 'none';
+    } else {
+      if (autoScrollEnabled) {
+        autoScrollEnabled = false;
+        document.getElementById('jump-btn').style.display = 'flex';
+        document.getElementById('jump-btn').style.alignItems = 'center';
+        document.getElementById('jump-btn').style.justifyContent = 'center';
+      }
+    }
+  }
+
+  function init() {
+    el.addEventListener('scroll', _onScroll, { passive: true });
+    document.getElementById('jump-btn').addEventListener('click', enableAutoScroll);
+  }
+
+  return { init, appendFinal, updateInterim, commitInterim, clearInterim, setEditable, scrollToBottom, enableAutoScroll };
+})();
+
+
+// ─────────────────────────────────────────────
+// SpeechManager
+// ─────────────────────────────────────────────
+const SpeechManager = (() => {
+  const SILENCE_TIMEOUT = 30000;
+  let recognition = null;
+  let isActive = false;
+  let silenceTimer = null;
+  let reconnectCount = 0;
+  const MAX_RECONNECT = 8;
+  let lastRestartTime = 0;
+  let errorFired = false;   // flag: onerror fired before onend
+
+  function _getLang() {
+    return document.getElementById('lang-select').value;
+  }
+
+  function _createRecognition() {
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) return null;
+    const r = new SpeechRec();
+    r.continuous = true;
+    r.interimResults = true;
+    r.maxAlternatives = 1;
+    r.lang = _getLang();
+
+    r.onresult = (event) => {
+      let interim = '';
+      let final = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) final += t;
+        else interim += t;
+      }
+      if (final)   TextArea.appendFinal(final);
+      if (interim) TextArea.updateInterim(interim);
+      _resetSilenceTimer();
+      reconnectCount = 0; // successful result, reset counter
+    };
+
+    r.onerror = (event) => {
+      errorFired = true;
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        stop();
+        UI.stopRecordingUI();
+        UI.showToast('麥克風存取被拒絕，請在網址列允許麥克風權限');
+      } else if (event.error === 'audio-capture') {
+        stop();
+        UI.stopRecordingUI();
+        UI.showToast('找不到麥克風，請確認裝置已連接');
+      } else if (event.error === 'network') {
+        UI.showToast('語音辨識需要網路連線');
+        // let onend handle reconnect
+      } else if (event.error === 'no-speech' || event.error === 'aborted') {
+        // normal — ignore
+        errorFired = false;
+      }
+    };
+
+    r.onend = () => {
+      if (!isActive) return;
+      // Unexpected end — attempt reconnect
+      if (errorFired) {
+        errorFired = false;
+        // For serious errors, stop() was already called above
+        return;
+      }
+      if (reconnectCount >= MAX_RECONNECT) {
+        stop();
+        UI.stopRecordingUI();
+        UI.showToast('語音辨識連線中斷，請重新啟動');
+        return;
+      }
+      reconnectCount++;
+      const now = Date.now();
+      const delay = Math.max(300, 1000 - (now - lastRestartTime));
+      setTimeout(() => {
+        if (!isActive) return;
+        lastRestartTime = Date.now();
+        recognition = _createRecognition();
+        try { recognition.start(); } catch(e) {}
+      }, delay);
+    };
+
+    return r;
+  }
+
+  function _resetSilenceTimer() {
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(() => {
+      stop();
+      UI.stopRecordingUI();
+      UI.showToast('靜音超過 30 秒，已自動停止錄音');
+    }, SILENCE_TIMEOUT);
+  }
+
+  function start() {
+    if (isActive) return;
+    errorFired = false;
+    reconnectCount = 0;
+    lastRestartTime = Date.now();
+    isActive = true;
+    recognition = _createRecognition();
+    if (!recognition) {
+      isActive = false;
+      return;
+    }
+    try {
+      recognition.start();
+    } catch(e) {
+      isActive = false;
+      UI.showToast('無法啟動語音辨識');
+      return;
+    }
+    _resetSilenceTimer();
+  }
+
+  function stop() {
+    isActive = false;
+    clearTimeout(silenceTimer);
+    if (recognition) {
+      try { recognition.stop(); } catch(e) {}
+      recognition = null;
+    }
+    TextArea.commitInterim();
+  }
+
+  return { start, stop };
+})();
+
+
+// ─────────────────────────────────────────────
+// UI
+// ─────────────────────────────────────────────
+const UI = (() => {
+  let settingsOpen = false;
+  let toastTimer = null;
+
+  function checkAPI() {
+    const ok = !!(window.SpeechRecognition || window.webkitSpeechRecognition);
+    const warning = document.getElementById('api-warning');
+    const btn = document.getElementById('start-btn');
+    if (!ok) {
+      warning.classList.add('visible');
+      btn.disabled = true;
+    }
+    return ok;
+  }
+
+  function startRecordingUI() {
+    const btn = document.getElementById('start-btn');
+    btn.textContent = '⬛ 停止';
+    btn.classList.add('recording');
+    document.getElementById('rec-dot').classList.add('active');
+    TextArea.setEditable(false);
+    // Prevent language change while recording
+    document.getElementById('lang-select').disabled = true;
+  }
+
+  function stopRecordingUI() {
+    const btn = document.getElementById('start-btn');
+    btn.textContent = '▶ 啟動語音轉錄';
+    btn.classList.remove('recording');
+    document.getElementById('rec-dot').classList.remove('active');
+    TextArea.setEditable(true);
+    document.getElementById('lang-select').disabled = false;
+  }
+
+  function toggleSettings() {
+    const panel = document.getElementById('settings-panel');
+    const overlay = document.getElementById('settings-overlay');
+    settingsOpen = !settingsOpen;
+    panel.classList.toggle('open', settingsOpen);
+    overlay.classList.toggle('visible', settingsOpen);
+  }
+
+  function showToast(msg) {
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 3200);
+  }
+
+  function init() {
+    checkAPI();
+
+    // Start / Stop button
+    document.getElementById('start-btn').addEventListener('click', () => {
+      if (!checkAPI()) return;
+      const btn = document.getElementById('start-btn');
+      if (btn.classList.contains('recording')) {
+        SpeechManager.stop();
+        stopRecordingUI();
+      } else {
+        startRecordingUI();
+        SpeechManager.start();
+      }
+    });
+
+    // Author button: toggle night mode (black bg, yellow text, 標楷體)
+    let nightMode = false;
+    document.getElementById('author-btn').addEventListener('click', () => {
+      nightMode = !nightMode;
+      const authorBtn = document.getElementById('author-btn');
+      authorBtn.classList.toggle('night-mode', nightMode);
+      if (nightMode) {
+        SettingsManager.save({ bgColor: '#000000', fgColor: '#ffd700', fontFamily: "'DFKai-SB', 'BiauKai', serif" });
+        document.getElementById('set-bg').value = '#000000';
+        document.getElementById('set-fg').value = '#ffd700';
+        const fontSel = document.getElementById('set-font');
+        fontSel.selectedIndex = 0;
+      } else {
+        SettingsManager.save({ bgColor: '#ffffff', fgColor: '#1a1a1a', fontFamily: "'DFKai-SB', 'BiauKai', serif" });
+        document.getElementById('set-bg').value = '#ffffff';
+        document.getElementById('set-fg').value = '#1a1a1a';
+        const fontSel = document.getElementById('set-font');
+        fontSel.selectedIndex = 0;
+      }
+    });
+
+    // Settings open/close
+    document.getElementById('settings-btn').addEventListener('click', toggleSettings);
+    document.getElementById('settings-close').addEventListener('click', toggleSettings);
+    document.getElementById('settings-overlay').addEventListener('click', toggleSettings);
+
+    // Language change restarts recognition if active
+    document.getElementById('lang-select').addEventListener('change', () => {
+      // language is read at start time; no action needed if not recording
+    });
+  }
+
+  return { init, checkAPI, startRecordingUI, stopRecordingUI, toggleSettings, showToast };
+})();
+
+
+// ─────────────────────────────────────────────
+// Bootstrap
+// ─────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  SettingsManager.init();
+  TextArea.init();
+  UI.init();
+});
+</script>
+</body>
+</html>
