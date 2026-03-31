@@ -728,9 +728,9 @@ const SpeechManager = (() => {
     r.onend = () => {
       if (!isActive) return;
       // Unexpected end — attempt reconnect
+      // errorFired=true 只在致命錯誤（not-allowed / audio-capture）時才中斷
       if (errorFired) {
         errorFired = false;
-        // For serious errors, stop() was already called above
         return;
       }
       if (reconnectCount >= MAX_RECONNECT) {
@@ -740,8 +740,10 @@ const SpeechManager = (() => {
         return;
       }
       reconnectCount++;
-      const now = Date.now();
-      const delay = Math.max(300, 1000 - (now - lastRestartTime));
+      // iOS WebKit 不支援 continuous:true，onend 會頻繁觸發
+      // 使用短延遲（60ms）讓重連盡快發生，避免漏字
+      // 若短時間內連續失敗才改用較長退避延遲
+      const delay = reconnectCount <= 2 ? 60 : Math.min(reconnectCount * 150, 1000);
       setTimeout(() => {
         if (!isActive) return;
         lastRestartTime = Date.now();
