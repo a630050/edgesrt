@@ -651,17 +651,37 @@ const AudioSourceManager = (() => {
       return;
     }
 
-    selectedDeviceId = deviceId;
+    const wasRecording = SpeechManager.getIsActive();
+
+    // 1. 完全停止並清理舊串流的 Track 快取
     if (currentStream) {
-      currentStream.getTracks().forEach(track => track.stop());
+      currentStream.getTracks().forEach(track => {
+        try {
+          track.enabled = false;
+          track.stop();
+        } catch (e) {}
+      });
       currentStream = null;
     }
 
+    selectedDeviceId = deviceId;
+
+    // 2. 短暫延遲 100ms 讓 Windows 音訊系統與驅動完全釋放舊裝置
+    await new Promise(resolve => setTimeout(resolve, 100));
+
     if (deviceId) {
       try {
-        currentStream = await navigator.mediaDevices.getUserMedia({
-          audio: { deviceId: { exact: deviceId } }
-        });
+        // 優先嘗試 exact 強制綁定，失敗則降級為常規綁定
+        try {
+          currentStream = await navigator.mediaDevices.getUserMedia({
+            audio: { deviceId: { exact: deviceId } }
+          });
+        } catch (exactErr) {
+          currentStream = await navigator.mediaDevices.getUserMedia({
+            audio: { deviceId: deviceId }
+          });
+        }
+
         await getDevices();
         selectEl.value = deviceId;
         UI.showToast('已切換音訊來源裝置');
@@ -674,6 +694,11 @@ const AudioSourceManager = (() => {
     } else {
       await getDevices();
       selectEl.value = '';
+    }
+
+    // 3. 若切換前正在錄音辨識中，自動平滑無縫重啟語音辨識
+    if (wasRecording) {
+      SpeechManager.restart();
     }
   }
 
@@ -927,7 +952,19 @@ const SpeechManager = (() => {
     TextArea.commitInterim();
   }
 
-  return { start, stop };
+  function getIsActive() {
+    return isActive;
+  }
+
+  function restart() {
+    stop();
+    setTimeout(() => {
+      UI.startRecordingUI();
+      start();
+    }, 150);
+  }
+
+  return { start, stop, restart, getIsActive };
 })();
 
 
@@ -955,9 +992,9 @@ const UI = (() => {
     btn.classList.add('recording');
     document.getElementById('rec-dot').classList.add('active');
     TextArea.setEditable(false);
-    // 錄音時停用語言與音訊來源切換
+    // 僅停用語言選擇，音訊來源允許自由隨時切換
     document.getElementById('lang-select').disabled = true;
-    document.getElementById('audio-source-select').disabled = true;
+    document.getElementById('audio-source-select').disabled = false;
   }
 
   function stopRecordingUI() {
