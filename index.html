@@ -13,8 +13,8 @@
     :root {
       --bg-color: #ffffff;
       --fg-color: #1a1a1a;
-      --font-family: 'DFKai-SB', serif;
-      --font-size: 20px;
+      --font-family: 'DFKai-SB', 'BiauKai', serif;
+      --font-size: 32px;
       --interim-color: #999999;
       --accent: #0078d4;
       --accent-hover: #006ab5;
@@ -37,7 +37,7 @@
       background: #e8e8e8;
     }
 
-    /* ── Toolbar ── */
+    /* ── 工具列 Toolbar ── */
     #toolbar {
       display: flex;
       align-items: center;
@@ -56,6 +56,7 @@
       gap: 8px;
       flex: 1;
       min-width: 0;
+      flex-wrap: wrap;
     }
 
     #toolbar .right-group {
@@ -113,7 +114,7 @@
     }
     #start-btn.recording:hover { background: #a93226; }
 
-    #lang-select {
+    #audio-source-select, #lang-select {
       padding: 0 8px;
       height: 34px;
       border: 1px solid var(--toolbar-border);
@@ -121,6 +122,14 @@
       background: #fff;
       font-size: 14px;
       cursor: pointer;
+    }
+
+    #audio-source-select {
+      max-width: 220px;
+      text-overflow: ellipsis;
+    }
+
+    #lang-select {
       max-width: 120px;
     }
 
@@ -387,12 +396,15 @@
   })();
 </script>
 
-<!-- Toolbar -->
+<!-- 工具列 Toolbar -->
 <div id="toolbar">
   <div class="left-group">
     <span id="rec-dot"></span>
     <button class="btn" id="start-btn">▶ 啟動</button>
-    <select id="lang-select">
+    <select id="audio-source-select" title="選擇音訊來源 / 麥克風">
+      <option value="">載入音訊裝置中...</option>
+    </select>
+    <select id="lang-select" title="選擇辨識語言">
       <option value="zh-TW">繁體中文</option>
       <option value="en-US">English</option>
       <option value="ja-JP">日本語</option>
@@ -405,20 +417,20 @@
   </div>
 </div>
 
-<!-- API warning -->
+<!-- API 警告 banner -->
 <div id="api-warning">⚠ 此瀏覽器不支援語音辨識 API，請使用 Microsoft Edge 或 Chrome 桌面版。</div>
 
-<!-- Transcript -->
+<!-- 轉錄文字區域 -->
 <div id="main">
   <div id="transcript" contenteditable="true" spellcheck="false"
        role="textbox" aria-multiline="true" aria-label="轉錄文字"></div>
   <button id="jump-btn" title="跳至最新">↓</button>
 </div>
 
-<!-- Settings overlay -->
+<!-- 設定面板遮罩 -->
 <div id="settings-overlay"></div>
 
-<!-- Settings Panel -->
+<!-- 設定面板 Settings Panel -->
 <aside id="settings-panel" aria-label="顯示設定">
   <div class="settings-header">
     <span>顯示設定</span>
@@ -448,15 +460,18 @@
       <label>字體</label>
       <select id="set-font">
         <option value="'DFKai-SB', 'BiauKai', serif">標楷體</option>
-        <option value="'Microsoft YaHei', 'PingFang TC', 'Noto Sans TC', sans-serif">思源黑體／微軟雅黑</option>
+        <option value="'Microsoft JhengHei', 'PingFang TC', 'Noto Sans TC', sans-serif">微軟正黑體 / 思源黑體</option>
+        <option value="'PMingLiU', 'MingLiU', serif">新細明體</option>
+        <option value="system-ui, -apple-system, sans-serif">系統預設無襯線體</option>
+        <option value="'Consolas', 'Courier New', monospace">等寬字型 (Monospace)</option>
       </select>
     </div>
 
     <div class="setting-row">
       <label>字體大小</label>
       <div class="slider-row">
-        <input type="range" id="set-size" min="14" max="48" step="1" value="20">
-        <output id="set-size-out">20px</output>
+        <input type="range" id="set-size" min="16" max="72" step="1" value="32">
+        <output id="set-size-out">32px</output>
       </div>
     </div>
 
@@ -470,7 +485,7 @@
 'use strict';
 
 // ─────────────────────────────────────────────
-// SettingsManager
+// SettingsManager (設定管理員)
 // ─────────────────────────────────────────────
 const SettingsManager = (() => {
   const STORAGE_KEY = 'edgesrt_settings';
@@ -478,7 +493,7 @@ const SettingsManager = (() => {
     bgColor: '#ffffff',
     fgColor: '#1a1a1a',
     fontFamily: "'DFKai-SB', 'BiauKai', serif",
-    fontSize: 20
+    fontSize: 32
   };
 
   let current = { ...DEFAULTS };
@@ -489,7 +504,7 @@ const SettingsManager = (() => {
     root.style.setProperty('--fg-color', s.fgColor);
     root.style.setProperty('--font-family', s.fontFamily);
     root.style.setProperty('--font-size', s.fontSize + 'px');
-    // sync color previews
+    // 同步顏色預覽區塊
     document.getElementById('bg-preview').style.background = s.bgColor;
     document.getElementById('fg-preview').style.background = s.fgColor;
   }
@@ -508,12 +523,12 @@ const SettingsManager = (() => {
 
     applyAll(current);
 
-    // Set input initial values
+    // 設定輸入控制項初始值
     document.getElementById('set-bg').value = current.bgColor;
     document.getElementById('set-fg').value = current.fgColor;
 
     const fontSel = document.getElementById('set-font');
-    // find matching option
+    // 尋找對應的選單選項
     for (let opt of fontSel.options) {
       if (opt.value === current.fontFamily) { opt.selected = true; break; }
     }
@@ -522,8 +537,8 @@ const SettingsManager = (() => {
     sizeSlider.value = current.fontSize;
     document.getElementById('set-size-out').value = current.fontSize + 'px';
 
-    // Wire events
-    // Color pickers triggered via hidden <input type="color">
+    // 綁定控制項事件
+    // 點選預覽塊時觸發隱藏的 <input type="color">
     document.getElementById('bg-preview').addEventListener('click', () => {
       document.getElementById('set-bg').click();
     });
@@ -552,7 +567,134 @@ const SettingsManager = (() => {
 
 
 // ─────────────────────────────────────────────
-// TextArea
+// AudioSourceManager (音訊來源管理員)
+// ─────────────────────────────────────────────
+const AudioSourceManager = (() => {
+  const selectEl = document.getElementById('audio-source-select');
+  let currentStream = null;
+  let selectedDeviceId = '';
+
+  async function getDevices() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+      selectEl.innerHTML = '<option value="">不支援音訊來源選取</option>';
+      return;
+    }
+
+    try {
+      let devices = await navigator.mediaDevices.enumerateDevices();
+      let audioInputs = devices.filter(device => device.kind === 'audioinput');
+
+      selectEl.innerHTML = '';
+      if (audioInputs.length === 0) {
+        selectEl.innerHTML = '<option value="">未偵測到麥克風</option>';
+        return;
+      }
+
+      // 新增系統預設麥克風選項
+      const defaultOpt = document.createElement('option');
+      defaultOpt.value = '';
+      defaultOpt.textContent = '🎤 預設麥克風 (系統預設)';
+      selectEl.appendChild(defaultOpt);
+
+      let count = 1;
+      audioInputs.forEach((device) => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        
+        // 若已有真實名稱則直接顯示，否則顯示編號
+        const displayName = device.label ? device.label : `音訊輸入裝置 ${count++}`;
+        option.textContent = displayName;
+
+        if (device.deviceId && device.deviceId === selectedDeviceId) {
+          option.selected = true;
+        }
+        selectEl.appendChild(option);
+      });
+
+      // 新增「點擊重新整理 / 讀取真實名稱」選項
+      const refreshOpt = document.createElement('option');
+      refreshOpt.value = '__refresh__';
+      refreshOpt.textContent = '🔄 點擊刷新 / 讀取真實裝置名稱...';
+      selectEl.appendChild(refreshOpt);
+
+    } catch (err) {
+      console.error('無法列舉音訊裝置:', err);
+      selectEl.innerHTML = '<option value="">取得音訊裝置失敗</option>';
+    }
+  }
+
+  // 主動請求麥克風權限以解鎖瀏覽器安全限制並獲得真實名稱
+  async function requestPermissionAndRefresh() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let devices = await navigator.mediaDevices.enumerateDevices();
+      let audioInputs = devices.filter(device => device.kind === 'audioinput');
+      
+      await getDevices();
+
+      if (!selectedDeviceId && stream) {
+        stream.getTracks().forEach(track => track.stop());
+      } else if (stream) {
+        currentStream = stream;
+      }
+      UI.showToast('已成功載入真實麥克風裝置名稱');
+    } catch (e) {
+      console.warn('請求麥克風權限失敗:', e);
+      UI.showToast('請允許麥克風權限以讀取詳細裝置名稱');
+    }
+  }
+
+  async function selectDevice(deviceId) {
+    if (deviceId === '__refresh__') {
+      await requestPermissionAndRefresh();
+      selectEl.value = selectedDeviceId;
+      return;
+    }
+
+    selectedDeviceId = deviceId;
+    if (currentStream) {
+      currentStream.getTracks().forEach(track => track.stop());
+      currentStream = null;
+    }
+
+    if (deviceId) {
+      try {
+        currentStream = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: { exact: deviceId } }
+        });
+        await getDevices();
+        selectEl.value = deviceId;
+        UI.showToast('已切換音訊來源裝置');
+      } catch (err) {
+        console.error('切換音訊裝置失敗:', err);
+        UI.showToast('切換音訊來源失敗，已還原為預設麥克風');
+        selectedDeviceId = '';
+        selectEl.value = '';
+      }
+    } else {
+      await getDevices();
+      selectEl.value = '';
+    }
+  }
+
+  function init() {
+    getDevices();
+    
+    selectEl.addEventListener('change', (e) => {
+      selectDevice(e.target.value);
+    });
+
+    if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+      navigator.mediaDevices.addEventListener('devicechange', getDevices);
+    }
+  }
+
+  return { init, getDevices, requestPermissionAndRefresh, selectDevice };
+})();
+
+
+// ─────────────────────────────────────────────
+// TextArea (文字顯示區管理員)
 // ─────────────────────────────────────────────
 const TextArea = (() => {
   const el = document.getElementById('transcript');
@@ -578,19 +720,19 @@ const TextArea = (() => {
   function appendFinal(text) {
     if (!text) return;
 
-    // Remove interim para temporarily
+    // 暫時移除即時辨識段落
     if (interimPara && el.contains(interimPara)) {
       el.removeChild(interimPara);
     }
     interimPara = null;
     interimSpan = null;
 
-    // Append the final text as a new paragraph
+    // 將最終辨識文字作為新段落追加
     const p = document.createElement('p');
     p.textContent = text;
     el.appendChild(p);
 
-    // Re-create interim para at the end
+    // 在末尾重新建立即時辨識段落
     _ensureInterimPara();
 
     if (autoScrollEnabled) scrollToBottom();
@@ -605,7 +747,6 @@ const TextArea = (() => {
   function commitInterim() {
     if (interimSpan && interimSpan.textContent.trim()) {
       const text = interimSpan.textContent;
-      // Clear span first to avoid duplicate
       interimSpan.textContent = '';
       appendFinal(text);
     }
@@ -614,9 +755,7 @@ const TextArea = (() => {
 
   function clearInterim() {
     if (interimSpan) interimSpan.textContent = '';
-    // Remove the empty interim para cleanly
-    if (interimPara && el.contains(interimPara) &&
-        interimPara.textContent.trim() === '') {
+    if (interimPara && el.contains(interimPara) && interimPara.textContent.trim() === '') {
       el.removeChild(interimPara);
     }
     interimPara = null;
@@ -667,7 +806,7 @@ const TextArea = (() => {
 
 
 // ─────────────────────────────────────────────
-// SpeechManager
+// SpeechManager (語音辨識管理員)
 // ─────────────────────────────────────────────
 const SpeechManager = (() => {
   const SILENCE_TIMEOUT = 30000;
@@ -677,7 +816,7 @@ const SpeechManager = (() => {
   let reconnectCount = 0;
   const MAX_RECONNECT = 8;
   let lastRestartTime = 0;
-  let errorFired = false;   // flag: onerror fired before onend
+  let errorFired = false;
 
   function _getLang() {
     return document.getElementById('lang-select').value;
@@ -703,7 +842,7 @@ const SpeechManager = (() => {
       if (final) TextArea.appendFinal(final);
       if (interim) TextArea.updateInterim(interim);
       _resetSilenceTimer();
-      reconnectCount = 0; // successful result, reset counter
+      reconnectCount = 0;
     };
 
     r.onerror = (event) => {
@@ -718,17 +857,13 @@ const SpeechManager = (() => {
         UI.showToast('找不到麥克風，請確認裝置已連接');
       } else if (event.error === 'network') {
         UI.showToast('語音辨識需要網路連線');
-        // let onend handle reconnect
       } else if (event.error === 'no-speech' || event.error === 'aborted') {
-        // normal — ignore
         errorFired = false;
       }
     };
 
     r.onend = () => {
       if (!isActive) return;
-      // Unexpected end — attempt reconnect
-      // errorFired=true 只在致命錯誤（not-allowed / audio-capture）時才中斷
       if (errorFired) {
         errorFired = false;
         return;
@@ -740,9 +875,6 @@ const SpeechManager = (() => {
         return;
       }
       reconnectCount++;
-      // iOS WebKit 不支援 continuous:true，onend 會頻繁觸發
-      // 使用短延遲（60ms）讓重連盡快發生，避免漏字
-      // 若短時間內連續失敗才改用較長退避延遲
       const delay = reconnectCount <= 2 ? 60 : Math.min(reconnectCount * 150, 1000);
       setTimeout(() => {
         if (!isActive) return;
@@ -800,7 +932,7 @@ const SpeechManager = (() => {
 
 
 // ─────────────────────────────────────────────
-// UI
+// UI (使用者介面管理員)
 // ─────────────────────────────────────────────
 const UI = (() => {
   let settingsOpen = false;
@@ -823,8 +955,9 @@ const UI = (() => {
     btn.classList.add('recording');
     document.getElementById('rec-dot').classList.add('active');
     TextArea.setEditable(false);
-    // Prevent language change while recording
+    // 錄音時停用語言與音訊來源切換
     document.getElementById('lang-select').disabled = true;
+    document.getElementById('audio-source-select').disabled = true;
   }
 
   function stopRecordingUI() {
@@ -834,6 +967,7 @@ const UI = (() => {
     document.getElementById('rec-dot').classList.remove('active');
     TextArea.setEditable(true);
     document.getElementById('lang-select').disabled = false;
+    document.getElementById('audio-source-select').disabled = false;
   }
 
   function toggleSettings() {
@@ -855,7 +989,7 @@ const UI = (() => {
   function init() {
     checkAPI();
 
-    // Start / Stop button
+    // 啟動 / 停止 按鈕
     document.getElementById('start-btn').addEventListener('click', () => {
       if (!checkAPI()) return;
       const btn = document.getElementById('start-btn');
@@ -865,10 +999,11 @@ const UI = (() => {
       } else {
         startRecordingUI();
         SpeechManager.start();
+        AudioSourceManager.requestPermissionAndRefresh();
       }
     });
 
-    // Author button: toggle night mode (black bg, yellow text, 標楷體)
+    // 作者按鈕：切換黑底黃字模式
     let nightMode = false;
     document.getElementById('author-btn').addEventListener('click', () => {
       nightMode = !nightMode;
@@ -889,15 +1024,10 @@ const UI = (() => {
       }
     });
 
-    // Settings open/close
+    // 設定面板開啟 / 關閉
     document.getElementById('settings-btn').addEventListener('click', toggleSettings);
     document.getElementById('settings-close').addEventListener('click', toggleSettings);
     document.getElementById('settings-overlay').addEventListener('click', toggleSettings);
-
-    // Language change restarts recognition if active
-    document.getElementById('lang-select').addEventListener('change', () => {
-      // language is read at start time; no action needed if not recording
-    });
   }
 
   return { init, checkAPI, startRecordingUI, stopRecordingUI, toggleSettings, showToast };
@@ -905,12 +1035,25 @@ const UI = (() => {
 
 
 // ─────────────────────────────────────────────
-// Bootstrap
+// Bootstrap (程式啟動入口)
 // ─────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   SettingsManager.init();
   TextArea.init();
+  AudioSourceManager.init();
   UI.init();
+
+  // 檢查是否帶有 ?autostart=true 自動啟動參數
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('autostart') === 'true' || urlParams.get('start') === '1') {
+    setTimeout(() => {
+      if (UI.checkAPI()) {
+        UI.startRecordingUI();
+        SpeechManager.start();
+        UI.showToast('已一鍵自動開啟並啟動語音辨識');
+      }
+    }, 400);
+  }
 });
 </script>
 </body>
