@@ -1277,35 +1277,24 @@ const UI = (() => {
     document.getElementById('save-btn').addEventListener('click', saveTxt);
 
     // 作者按鈕：切換夜晚模式（黑底黃字）/ 白天模式
-    let nightMode = localStorage.getItem('edgesrt_night') === 'true';
-    // 初始化時同步 night-theme class
-    if (nightMode) {
-      document.getElementById('author-btn').classList.add('night-mode');
-      document.documentElement.classList.add('night-theme');
-    }
     document.getElementById('author-btn').addEventListener('click', () => {
-      nightMode = !nightMode;
-      const authorBtn = document.getElementById('author-btn');
-      authorBtn.classList.toggle('night-mode', nightMode);
-      document.documentElement.classList.toggle('night-theme', nightMode);
-      try { localStorage.setItem('edgesrt_night', nightMode); } catch(e) {}
-      if (nightMode) {
+      const isNight = !SettingsManager.getCurrent().nightMode;
+      if (isNight) {
         // 夜晚模式：上下全黑，轉錄區黑底黃字
-        SettingsManager.save({ bgColor: '#000000', fgColor: '#ffd700', fontFamily: "'DFKai-SB', 'BiauKai', serif" });
+        SettingsManager.save({ nightMode: true, bgColor: '#000000', fgColor: '#ffd700', fontFamily: "'DFKai-SB', 'BiauKai', serif" });
         document.getElementById('set-bg').value = '#000000';
         document.getElementById('set-fg').value = '#ffd700';
         const fontSel = document.getElementById('set-font');
         fontSel.selectedIndex = 0;
       } else {
         // 白天模式：上下淺灰，轉錄區白底深字
-        SettingsManager.save({ bgColor: '#ffffff', fgColor: '#1a1d23', fontFamily: "'DFKai-SB', 'BiauKai', serif" });
+        SettingsManager.save({ nightMode: false, bgColor: '#ffffff', fgColor: '#1a1d23', fontFamily: "'DFKai-SB', 'BiauKai', serif" });
         document.getElementById('set-bg').value = '#ffffff';
         document.getElementById('set-fg').value = '#1a1d23';
         const fontSel = document.getElementById('set-font');
         fontSel.selectedIndex = 0;
       }
     });
-
 
     // 說明面板
     const instModal = document.getElementById('instruction-modal');
