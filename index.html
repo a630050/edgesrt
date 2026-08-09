@@ -320,12 +320,6 @@
       transition: all var(--transition-fast);
     }
     #author-btn:hover { background: rgba(255,255,255,0.06); color: var(--fg-secondary); border-color: var(--border-medium); }
-    #author-btn.night-mode {
-      background: #1a1a1a;
-      color: #ffd700;
-      border-color: #444;
-    }
-    #author-btn.night-mode:hover { background: #2a2a2a; }
 
     #settings-btn {
       background: transparent;
@@ -968,12 +962,6 @@ const SettingsManager = (() => {
     // 同步顏色預覽區塊
     document.getElementById('bg-preview').style.background = s.bgColor;
     document.getElementById('fg-preview').style.background = s.fgColor;
-    
-    // 同步夜晚模式 UI 狀態
-    const authorBtn = document.getElementById('author-btn');
-    if (authorBtn) {
-      authorBtn.classList.toggle('night-mode', !!s.nightMode);
-    }
     
     const bgRow = document.getElementById('bg-preview').closest('.setting-row');
     const fgRow = document.getElementById('fg-preview').closest('.setting-row');
