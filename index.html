@@ -377,7 +377,7 @@
       color: var(--transcript-fg);
       font-family: var(--transcript-font);
       font-size: var(--transcript-size);
-      line-height: var(--transcript-line-height, 1.75);
+      line-height: var(--transcript-line-height, 1.2);
       outline: none;
       word-break: break-word;
       white-space: pre-wrap;
@@ -394,7 +394,7 @@
       -webkit-user-select: text;
     }
     #transcript p {
-      min-height: calc(var(--transcript-line-height, 1.75) * 1em);
+      min-height: calc(var(--transcript-line-height, 1.2) * 1em);
       margin: 0;
     }
     #transcript p + p {
@@ -910,8 +910,8 @@
     <div class="setting-row">
       <label>行高間距</label>
       <div class="slider-row">
-        <input type="range" id="set-line-height" min="1.0" max="2.0" step="0.1" value="1.75">
-        <output id="set-line-height-out">1.75</output>
+        <input type="range" id="set-line-height" min="1.0" max="2.0" step="0.1" value="1.2">
+        <output id="set-line-height-out">1.2</output>
       </div>
     </div>
 
@@ -952,7 +952,7 @@ const SettingsManager = (() => {
     fgColor: '#1a1d23',
     fontFamily: "'DFKai-SB', 'BiauKai', serif",
     fontSize: 32,
-    lineHeight: 1.75,
+    lineHeight: 1.2,
     nightMode: false,
     forceScroll: false
   };
