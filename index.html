@@ -394,7 +394,7 @@
       -webkit-user-select: text;
     }
     #transcript p {
-      min-height: 1.75em;
+      min-height: calc(var(--transcript-line-height, 1.75) * 1em);
       margin: 0;
     }
     #transcript p + p {
