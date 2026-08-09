@@ -915,6 +915,11 @@
       </div>
     </div>
 
+    <div class="setting-row" style="flex-direction: row; justify-content: space-between; margin-top: 10px;">
+      <label for="set-force-scroll" style="margin-bottom: 0;">強制視窗捲動置底</label>
+      <input type="checkbox" id="set-force-scroll" style="width: 18px; height: 18px; cursor: pointer;">
+    </div>
+
   </div>
 </aside>
 
@@ -948,7 +953,8 @@ const SettingsManager = (() => {
     fontFamily: "'DFKai-SB', 'BiauKai', serif",
     fontSize: 32,
     lineHeight: 1.75,
-    nightMode: false
+    nightMode: false,
+    forceScroll: false
   };
 
   let current = { ...DEFAULTS };
@@ -1030,6 +1036,11 @@ const SettingsManager = (() => {
     lineHeightSlider.value = current.lineHeight;
     document.getElementById('set-line-height-out').value = current.lineHeight;
 
+    const forceScrollCheck = document.getElementById('set-force-scroll');
+    if (forceScrollCheck) {
+      forceScrollCheck.checked = !!current.forceScroll;
+    }
+
     // 綁定控制項事件
     document.getElementById('set-theme').addEventListener('change', e => {
       save({ theme: e.target.value });
@@ -1064,6 +1075,12 @@ const SettingsManager = (() => {
       document.getElementById('set-line-height-out').value = v.toFixed(2);
       save({ lineHeight: v });
     });
+    const forceScrollCheckEvt = document.getElementById('set-force-scroll');
+    if (forceScrollCheckEvt) {
+      forceScrollCheckEvt.addEventListener('change', e => {
+        save({ forceScroll: e.target.checked });
+      });
+    }
   }
 
   function getCurrent() { return current; }
@@ -1147,7 +1164,7 @@ const TextArea = (() => {
     // 自動保存草稿
     Draft.schedule();
 
-    if (autoScrollEnabled) scrollToBottom();
+    if (autoScrollEnabled || SettingsManager.getCurrent().forceScroll) scrollToBottom();
   }
 
   function reset() {
@@ -1162,7 +1179,7 @@ const TextArea = (() => {
   function updateInterim(text) {
     _ensureInterimPara();
     interimSpan.textContent = text;
-    if (autoScrollEnabled) scrollToBottom();
+    if (autoScrollEnabled || SettingsManager.getCurrent().forceScroll) scrollToBottom();
   }
 
   function commitInterim() {
