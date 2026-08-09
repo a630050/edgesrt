@@ -377,7 +377,7 @@
       color: var(--transcript-fg);
       font-family: var(--transcript-font);
       font-size: var(--transcript-size);
-      line-height: 1.75;
+      line-height: var(--transcript-line-height, 1.75);
       outline: none;
       word-break: break-word;
       white-space: pre-wrap;
@@ -907,6 +907,14 @@
       </div>
     </div>
 
+    <div class="setting-row">
+      <label>行高間距</label>
+      <div class="slider-row">
+        <input type="range" id="set-line-height" min="1.0" max="2.0" step="0.1" value="1.75">
+        <output id="set-line-height-out">1.75</output>
+      </div>
+    </div>
+
   </div>
 </aside>
 
@@ -939,6 +947,7 @@ const SettingsManager = (() => {
     fgColor: '#1a1d23',
     fontFamily: "'DFKai-SB', 'BiauKai', serif",
     fontSize: 32,
+    lineHeight: 1.75,
     nightMode: false
   };
 
@@ -948,6 +957,7 @@ const SettingsManager = (() => {
     const root = document.documentElement;
     root.style.setProperty('--transcript-font', s.fontFamily);
     root.style.setProperty('--transcript-size', s.fontSize + 'px');
+    root.style.setProperty('--transcript-line-height', s.lineHeight);
     // 同步顏色預覽區塊
     document.getElementById('bg-preview').style.background = s.bgColor;
     document.getElementById('fg-preview').style.background = s.fgColor;
@@ -1016,6 +1026,10 @@ const SettingsManager = (() => {
     sizeSlider.value = current.fontSize;
     document.getElementById('set-size-out').value = current.fontSize + 'px';
 
+    const lineHeightSlider = document.getElementById('set-line-height');
+    lineHeightSlider.value = current.lineHeight;
+    document.getElementById('set-line-height-out').value = current.lineHeight;
+
     // 綁定控制項事件
     document.getElementById('set-theme').addEventListener('change', e => {
       save({ theme: e.target.value });
@@ -1044,6 +1058,11 @@ const SettingsManager = (() => {
       const v = parseInt(e.target.value, 10);
       document.getElementById('set-size-out').value = v + 'px';
       save({ fontSize: v });
+    });
+    document.getElementById('set-line-height').addEventListener('input', e => {
+      const v = parseFloat(e.target.value);
+      document.getElementById('set-line-height-out').value = v.toFixed(2);
+      save({ lineHeight: v });
     });
   }
 
