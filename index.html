@@ -648,6 +648,52 @@
       align-items: center;
       gap: 4px;
     }
+
+    /* ── 行動裝置響應式 (RWD) ── */
+    @media (max-width: 768px) {
+      #toolbar { 
+        padding: 8px 10px; 
+        gap: 6px; 
+      }
+      #toolbar .left-group { 
+        gap: 4px; 
+      }
+      /* 在手機上隱藏較不重要或佔空間的元素 */
+      #mic-select, #author-btn, #license-btn { 
+        display: none; 
+      }
+      .btn { 
+        padding: 6px 10px; 
+        font-size: 12px; 
+      }
+      #text-area { 
+        padding: 16px 20px; 
+      }
+      
+      /* 設定面板改為從底部滑出的 Bottom Sheet */
+      #settings-panel {
+        width: 100%;
+        right: 0 !important;
+        top: auto;
+        bottom: -100%;
+        height: 85vh;
+        border-radius: 20px 20px 0 0;
+        border-left: none;
+        border-top: 1px solid var(--border-medium);
+        transition: bottom 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        box-shadow: 0 -4px 24px rgba(0,0,0,0.15);
+      }
+      #settings-panel.open {
+        bottom: 0 !important;
+      }
+      
+      #toast {
+        max-width: 80vw;
+        padding: 8px 16px;
+        font-size: 12px;
+      }
+    }
+
     #license-btn {
       background: none;
       border: none;
@@ -1233,6 +1279,32 @@ const TextArea = (() => {
 
 
 // ─────────────────────────────────────────────
+// WakeLockManager (螢幕喚醒鎖管理員)
+// ─────────────────────────────────────────────
+const WakeLockManager = (() => {
+  let wakeLock = null;
+
+  async function request() {
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+      } catch (err) {
+        // Ignore errors if wake lock is denied
+      }
+    }
+  }
+
+  function release() {
+    if (wakeLock !== null) {
+      wakeLock.release().catch(() => {});
+      wakeLock = null;
+    }
+  }
+
+  return { request, release };
+})();
+
+// ─────────────────────────────────────────────
 // SpeechManager (語音辨識管理員) — 永不中斷版
 // ─────────────────────────────────────────────
 // Edge 的 SpeechRecognition API 約 30 秒會自動斷開連線（無論有無講話）。
@@ -1259,8 +1331,14 @@ const SpeechManager = (() => {
   function _scheduleReconnect() {
     if (!isActive) return;
     reconnectCount++;
-    // 指數退避：60ms → 150ms → 300ms → 450ms → 600ms → 750ms → 1000ms → 1000ms...
-    const delay = reconnectCount <= 2 ? 60 : Math.min(reconnectCount * 150, 1000);
+    
+    // 偵測是否為 iOS 裝置 (iPhone/iPad)
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    
+    // 針對非 iOS (如 Windows Edge)，維持原本優秀的指數退避重連機制
+    // 針對 iOS，為了減少 Apple 系統強制切斷麥克風後的「暖機時間」造成的吃字，將延遲降到最低 (10ms)
+    const delay = isIOS ? 10 : (reconnectCount <= 2 ? 60 : Math.min(reconnectCount * 150, 1000));
+    
     // 頁籤隱藏時降低重試頻率（恢復可見後會由 visibilitychange 觸發重啟）
     const actualDelay = document.hidden ? Math.max(delay, 5000) : delay;
     // 重連中：讓使用者看到 UI 回饋
@@ -1348,6 +1426,7 @@ const SpeechManager = (() => {
     connected = false;
     hasEnded = false;
     UI.setReconnecting(false);
+    WakeLockManager.request();
     recognition = _createRecognition();
     if (!recognition) {
       isActive = false;
@@ -1369,6 +1448,7 @@ const SpeechManager = (() => {
     connected = false;
     hasEnded = false;
     UI.setReconnecting(false);
+    WakeLockManager.release();
     if (recognition) {
       try { recognition.stop(); } catch(e) {}
       recognition = null;
