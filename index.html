@@ -1058,10 +1058,7 @@
       </div>
     </div>
 
-    <div class="setting-row" style="flex-direction: row; justify-content: space-between; margin-top: 10px;">
-      <label for="set-force-scroll" style="margin-bottom: 0;">強制視窗捲動置底</label>
-      <input type="checkbox" id="set-force-scroll" style="width: 18px; height: 18px; cursor: pointer;">
-    </div>
+
 
   </div>
 </aside>
@@ -1075,7 +1072,12 @@
   <div class="center-stats">
     <button id="license-btn" title="查看第三方授權與免責聲明">⚖️ 第三方授權聲明</button>
   </div>
-  <div class="right-stats"></div>
+  <div class="right-stats">
+    <label for="set-force-scroll" style="display: flex; align-items: center; gap: 4px; cursor: pointer; font-size: 12px; color: var(--fg-secondary); margin: 0;">
+      <input type="checkbox" id="set-force-scroll" style="cursor: pointer; margin: 0;">
+      強制置底
+    </label>
+  </div>
 </div>
 
 <!-- Toast -->
