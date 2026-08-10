@@ -642,6 +642,8 @@
     }
     #status-bar .right-stats {
       flex: 1;
+      display: flex;
+      justify-content: flex-end;
     }
     #status-bar .stat {
       display: flex;
@@ -1218,6 +1220,7 @@ const SettingsManager = (() => {
     if (forceScrollCheckEvt) {
       forceScrollCheckEvt.addEventListener('change', e => {
         save({ forceScroll: e.target.checked });
+        if (e.target.checked) TextArea.scrollToBottom();
       });
     }
   }
