@@ -785,6 +785,72 @@
     .modal-body p:last-child {
       margin: 0;
     }
+
+    /* ── 辭彙替換表 ── */
+    .modal-content--wide {
+      width: min(620px, 92vw);
+    }
+    .glossary-hint {
+      font-size: 12px;
+      color: var(--fg-muted);
+      margin: 0 0 12px 0;
+      line-height: 1.6;
+    }
+    .glossary-table-wrap {
+      max-height: 300px;
+      overflow-y: auto;
+      border: 1px solid var(--border-medium);
+      border-radius: 6px;
+      margin-bottom: 10px;
+      background: var(--bg-surface);
+    }
+    .glossary-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      color: var(--fg-primary);
+    }
+    .glossary-table th {
+      position: sticky;
+      top: 0;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-medium);
+      text-align: left;
+      padding: 6px 10px;
+      font-weight: 600;
+      z-index: 1;
+    }
+    .glossary-table td {
+      padding: 5px 10px;
+      border-bottom: 1px solid var(--border-medium);
+      vertical-align: middle;
+    }
+    .glossary-table tr:last-child td {
+      border-bottom: none;
+    }
+    .glossary-table input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 3px 6px;
+      font-size: 13px;
+      border: 1px solid var(--border-medium);
+      border-radius: 4px;
+      background: var(--bg-surface);
+      color: var(--fg-primary);
+    }
+    .glossary-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .glossary-status {
+      margin-top: 10px;
+      font-size: 12px;
+      min-height: 18px;
+      color: var(--fg-muted);
+    }
+    .glossary-status.is-success { color: #4caf50; }
+    .glossary-status.is-error { color: #e74c3c; }
   </style>
 </head>
 <body>
@@ -824,6 +890,7 @@
       <option value="de-DE">Deutsch (德語)</option>
     </select>
     <button class="btn" id="clear-btn" title="清除全部文字">🗑️ 清除</button>
+    <button class="btn" id="glossary-btn" title="辭彙替換表：設定語音轉錄常見誤轉辭彙的自動替換（interim 即時文字與落地文字都會套用）">辭彙替換表</button>
   </div>
   <div class="right-group">
     <div class="toolbar-divider"></div>
@@ -884,6 +951,41 @@
 
       <h3>免責聲明</h3>
       <p>本程式為免費開源之公益專案，所有服務皆依賴第三方免費資源。開發者不保證服務之永久可用性，亦不對翻譯或語音辨識之準確度負責。請勿將本程式用於任何商業營利行為。</p>
+    </div>
+  </div>
+</div>
+
+<!-- 辭彙替換表 Modal -->
+<div id="glossary-modal" class="modal-overlay">
+  <div class="modal-content modal-content--wide">
+    <div class="modal-header">
+      <h2>📖 辭彙替換表</h2>
+      <button class="modal-close" id="glossary-close" title="關閉">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="glossary-hint">語音轉錄常把某些辭彙誤轉成另一個詞（例如「雲端」被轉成「云端」）。在此設定「原辭彙 → 替換成辭彙」，interim 即時文字與落地文字都會在顯示／落地前先自動替換。資料只存在本機瀏覽器（localStorage）。</p>
+      <div class="glossary-table-wrap">
+        <table class="glossary-table">
+          <thead>
+            <tr>
+              <th style="width: 45%;">原辭彙（誤轉結果）</th>
+              <th style="width: 45%;">替換成辭彙</th>
+              <th style="width: 10%; text-align: center;">操作</th>
+            </tr>
+          </thead>
+          <tbody id="glossary-table-body"></tbody>
+        </table>
+      </div>
+      <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+        <button class="btn" id="glossary-add-btn" title="新增一列辭彙規則">+ 新增辭彙列</button>
+      </div>
+      <div class="glossary-actions">
+        <button class="btn" id="glossary-save-btn" title="儲存到本機瀏覽器">💾 儲存</button>
+        <button class="btn" id="glossary-export-btn" title="匯出為 JSON 檔案">⬆ 匯出 JSON</button>
+        <button class="btn" id="glossary-import-btn" title="從 JSON 或 TXT 檔案匯入（原詞=>正詞 逐行）">⬇ 匯入</button>
+        <input type="file" id="glossary-file-input" accept=".json,.txt" hidden>
+      </div>
+      <div class="glossary-status" id="glossary-status" role="status"></div>
     </div>
   </div>
 </div>
@@ -1120,6 +1222,365 @@ const SettingsManager = (() => {
 
   function getCurrent() { return current; }
   return { init, save, getCurrent };
+})();
+
+
+// ─────────────────────────────────────────────
+// GlossaryManager (辭彙替換表 — 語音誤轉辭彙自動替換)
+// ─────────────────────────────────────────────
+// 語音轉錄常把某些辭彙誤轉成另一個詞（例如「雲端」轉成「云端」）。
+// 在此設定「原辭彙 → 替換成辭彙」的對照表，interim 即時文字與落地文字
+// 都會在顯示／落地前先套用替換。資料只存在本機瀏覽器 (localStorage)。
+const GlossaryManager = (() => {
+  const STORAGE_KEY = 'edgesrt_glossary';
+  const DEFAULT_GLOSSARY = {
+    '云端': '雲端',
+    '隻有': '只有',
+    'Germany': 'Gemini'
+  };
+
+  let glossary = {}; // { 原辭彙: 替換成辭彙 }
+
+  function escapeRegExp(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  // 含中日韓字元的辭彙用「直接字串替換」：中文沒有空格分隔，詞界正則在句中會失效；
+  // 純拉丁/英文辭彙改用「非字母數字前後包夾」的類詞界比對，避免誤替換到較長單字的中間片段。
+  function containsCJK(str) {
+    return /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(str);
+  }
+
+  function substitute(text) {
+    if (!text) return text;
+    // 依字數由長到短排序，避免短規則先替換而破壞長規則
+    const rules = Object.entries(glossary).sort((a, b) => b[0].length - a[0].length);
+    let result = text;
+    for (const [key, value] of rules) {
+      if (!key || !value) continue;
+      if (containsCJK(key)) {
+        result = result.split(key).join(value);
+      } else {
+        const pattern = new RegExp(`(?<![A-Za-z0-9_])(${escapeRegExp(key)})(?![A-Za-z0-9_])`, 'g');
+        result = result.replace(pattern, value);
+      }
+    }
+    return result;
+  }
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw === null) {
+        // 第一次使用：寫入預設辭彙
+        glossary = { ...DEFAULT_GLOSSARY };
+        save();
+      } else {
+        const parsed = JSON.parse(raw);
+        glossary = (parsed && typeof parsed === 'object') ? parsed : {};
+      }
+    } catch (e) {
+      glossary = {};
+    }
+  }
+
+  function save() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(glossary)); } catch (e) {}
+  }
+
+  // --- 表格 UI ---
+  let tableBody = null;
+
+  function setStatus(message, type = '') {
+    const el = document.getElementById('glossary-status');
+    if (!el) return;
+    el.textContent = message;
+    el.classList.toggle('is-success', type === 'success');
+    el.classList.toggle('is-error', type === 'error');
+  }
+
+  function renderTable() {
+    if (!tableBody) return;
+    tableBody.innerHTML = '';
+    const entries = Object.entries(glossary).sort((a, b) => a[0].localeCompare(b[0], 'zh-Hant'));
+    if (entries.length === 0) {
+      const tr = document.createElement('tr');
+      const td = document.createElement('td');
+      td.colSpan = 3;
+      td.style.cssText = 'padding:14px; text-align:center; color:var(--fg-muted); font-size:12px;';
+      td.textContent = '尚無辭彙規則，請點擊「+ 新增辭彙列」新增';
+      tr.appendChild(td);
+      tableBody.appendChild(tr);
+    } else {
+      entries.forEach(([key, value]) => tableBody.appendChild(createRow(key, value)));
+    }
+  }
+
+  function createRow(key, value) {
+    const tr = document.createElement('tr');
+
+    const tdKey = document.createElement('td');
+    tdKey.textContent = key;
+    tdKey.style.cursor = 'text';
+    tdKey.title = '雙擊編輯原辭彙';
+
+    const tdValue = document.createElement('td');
+    tdValue.textContent = value;
+    tdValue.style.cursor = 'text';
+    tdValue.title = '雙擊編輯替換成辭彙';
+
+    const tdAction = document.createElement('td');
+    tdAction.style.textAlign = 'center';
+    const delBtn = document.createElement('button');
+    delBtn.type = 'button';
+    delBtn.textContent = '✕';
+    delBtn.title = '刪除此規則';
+    delBtn.style.cssText = 'font-size:13px; min-width:26px; padding:2px 6px; border:1px solid var(--border-medium); border-radius:4px; background:transparent; color:var(--fg-secondary); cursor:pointer;';
+    delBtn.addEventListener('click', () => {
+      delete glossary[key];
+      save();
+      renderTable();
+      setStatus(`已刪除「${key}」`, 'success');
+    });
+    tdAction.appendChild(delBtn);
+
+    tdKey.addEventListener('dblclick', () => startInlineEdit(tdKey, key, 'key'));
+    tdValue.addEventListener('dblclick', () => startInlineEdit(tdValue, key, 'value'));
+
+    tr.appendChild(tdKey);
+    tr.appendChild(tdValue);
+    tr.appendChild(tdAction);
+    return tr;
+  }
+
+  // 雙擊欄位進入行內編輯，失焦或 Enter 儲存，Esc 取消
+  function startInlineEdit(td, originalKey, field) {
+    if (td.querySelector('input')) return; // 已在編輯中
+    const currentText = td.textContent;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentText;
+    td.textContent = '';
+    td.appendChild(input);
+    input.focus();
+    input.select();
+
+    function commit() {
+      const newText = input.value.trim();
+      if (!newText) {
+        // 空值：還原原文
+        td.textContent = currentText;
+        return;
+      }
+      if (field === 'key') {
+        if (newText !== originalKey) {
+          const oldValue = glossary[originalKey] || '';
+          delete glossary[originalKey];
+          glossary[newText] = oldValue;
+          save();
+          renderTable();
+          setStatus(`已將原辭彙「${originalKey}」改為「${newText}」`, 'success');
+        } else {
+          td.textContent = currentText;
+        }
+      } else {
+        if (newText !== currentText) {
+          glossary[originalKey] = newText;
+          save();
+          renderTable();
+          setStatus(`已更新「${originalKey}」的替換辭彙`, 'success');
+        } else {
+          td.textContent = currentText;
+        }
+      }
+    }
+
+    input.addEventListener('blur', commit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+      if (e.key === 'Escape') { td.textContent = currentText; }
+    });
+  }
+
+  // 新增一列（兩欄都填寫後自動寫入並儲存）
+  function addRow() {
+    if (!tableBody) return;
+    // 移除可能存在的空白提示列
+    const emptyHint = tableBody.querySelector('tr td[colspan]');
+    if (emptyHint) emptyHint.parentElement.remove();
+
+    const tr = document.createElement('tr');
+    let cancelled = false; // 取消後忽略稍後觸發的 blur 自動提交
+
+    const tdKey = document.createElement('td');
+    tdKey.style.cssText = 'padding:5px 10px;';
+    const inputKey = document.createElement('input');
+    inputKey.type = 'text';
+    inputKey.placeholder = '輸入原辭彙（誤轉結果）';
+
+    const tdValue = document.createElement('td');
+    tdValue.style.cssText = 'padding:5px 10px;';
+    const inputValue = document.createElement('input');
+    inputValue.type = 'text';
+    inputValue.placeholder = '輸入替換成辭彙';
+
+    const tdAction = document.createElement('td');
+    tdAction.style.cssText = 'text-align:center;';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.textContent = '✕';
+    cancelBtn.title = '取消新增';
+    cancelBtn.style.cssText = 'font-size:13px; min-width:26px; padding:2px 6px; border:1px solid var(--border-medium); border-radius:4px; background:transparent; color:var(--fg-muted); cursor:pointer;';
+    cancelBtn.addEventListener('click', () => {
+      cancelled = true;
+      tr.remove();
+      if (tableBody.children.length === 0) renderTable();
+    });
+
+    function commitNewRow() {
+      if (cancelled) return;
+      const k = inputKey.value.trim();
+      const v = inputValue.value.trim();
+      if (k && v) {
+        glossary[k] = v;
+        save();
+        renderTable();
+        setStatus(`已新增辭彙「${k} → ${v}」，已自動儲存`, 'success');
+      } else if (!k && !v) {
+        // 兩欄都空白：靜默移除
+        tr.remove();
+        if (tableBody.children.length === 0) renderTable();
+      }
+      // 只填一欄：保留列讓使用者繼續填寫
+    }
+
+    inputKey.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); inputValue.focus(); }
+      if (e.key === 'Escape') { cancelled = true; tr.remove(); if (tableBody.children.length === 0) renderTable(); }
+    });
+    inputValue.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); commitNewRow(); }
+      if (e.key === 'Escape') { cancelled = true; tr.remove(); if (tableBody.children.length === 0) renderTable(); }
+    });
+    // 失焦也自動提交，避免填完直接關閉視窗而漏存
+    inputKey.addEventListener('blur', () => setTimeout(commitNewRow, 0));
+    inputValue.addEventListener('blur', () => setTimeout(commitNewRow, 0));
+
+    tdKey.appendChild(inputKey);
+    tdValue.appendChild(inputValue);
+    tdAction.appendChild(cancelBtn);
+    tr.appendChild(tdKey);
+    tr.appendChild(tdValue);
+    tr.appendChild(tdAction);
+    tableBody.appendChild(tr);
+    inputKey.focus();
+  }
+
+  // --- 匯出 / 匯入 ---
+  function exportJson() {
+    const count = Object.keys(glossary).length;
+    if (count === 0) {
+      setStatus('目前沒有任何辭彙規則可匯出', 'error');
+      return;
+    }
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const filename = `辭彙替換表_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}.json`;
+    const blob = new Blob([JSON.stringify(glossary, null, 2)], { type: 'application/json;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    setStatus(`✅ 已匯出 ${count} 條規則至 ${filename}`, 'success');
+  }
+
+  // 相容純文字「原詞=>正詞」逐行（亦支援 -> 與 =）
+  function parseText(text) {
+    const entries = {};
+    text.split('\n').forEach(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      const separator = trimmed.includes('=>') ? '=>' : (trimmed.includes('->') ? '->' : (trimmed.includes('=') ? '=' : null));
+      if (!separator) return;
+      const idx = trimmed.indexOf(separator);
+      if (idx <= 0) return;
+      const key = trimmed.slice(0, idx).trim();
+      const value = trimmed.slice(idx + separator.length).trim();
+      if (key && value) entries[key] = value;
+    });
+    return entries;
+  }
+
+  function importFile(file) {
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const raw = evt.target.result;
+        let entries = {};
+        // 相容兩種格式：JSON 物件，或純文字「原詞=>正詞」逐行
+        if (file.name.toLowerCase().endsWith('.json')) {
+          const json = JSON.parse(raw);
+          Object.entries(json).forEach(([key, value]) => {
+            if (typeof key === 'string' && typeof value === 'string' && key.trim() && value.trim()) {
+              entries[key.trim()] = value.trim();
+            }
+          });
+        } else {
+          entries = parseText(raw);
+        }
+        const count = Object.keys(entries).length;
+        if (count === 0) {
+          setStatus('檔案中沒有可用的辭彙規則', 'error');
+          return;
+        }
+        glossary = entries; // 整表覆蓋
+        save();
+        renderTable();
+        setStatus(`✅ 已匯入 ${count} 條辭彙規則（整表覆蓋）`, 'success');
+      } catch (err) {
+        setStatus('辭彙表檔案格式錯誤：' + err, 'error');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function init() {
+    load();
+    tableBody = document.getElementById('glossary-table-body');
+    renderTable();
+
+    // 開啟 / 關閉視窗
+    const modal = document.getElementById('glossary-modal');
+    const openModal = () => { renderTable(); modal.classList.add('visible'); };
+    const closeModal = () => modal.classList.remove('visible');
+    document.getElementById('glossary-btn').addEventListener('click', openModal);
+    document.getElementById('glossary-close').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeModal();
+    });
+
+    document.getElementById('glossary-add-btn').addEventListener('click', addRow);
+    document.getElementById('glossary-save-btn').addEventListener('click', () => {
+      // 先讓聚焦欄位失焦，觸發新增列/行內編輯的提交，再統一儲存
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      setTimeout(() => {
+        save();
+        renderTable();
+        setStatus('💾 辭彙替換表已儲存（存在本機瀏覽器）', 'success');
+      }, 10);
+    });
+    document.getElementById('glossary-export-btn').addEventListener('click', exportJson);
+    document.getElementById('glossary-import-btn').addEventListener('click', () => document.getElementById('glossary-file-input').click());
+    document.getElementById('glossary-file-input').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      importFile(file);
+      e.target.value = '';
+    });
+  }
+
+  return { init, substitute };
 })();
 
 
@@ -1372,11 +1833,12 @@ const SpeechManager = (() => {
         if (event.results[i].isFinal) final += t;
         else interim += t;
       }
+      // 落地/顯示前先套用辭彙替換表（interim 與 final 一併處理）
       if (final) {
-        TextArea.appendFinal(final);
+        TextArea.appendFinal(GlossaryManager.substitute(final));
         UI.updateWordCount();
       }
-      if (interim) TextArea.updateInterim(interim);
+      if (interim) TextArea.updateInterim(GlossaryManager.substitute(interim));
       // 有收到結果就重置重連計數，並恢復正常錄音狀態
       reconnectCount = 0;
       connected = true;
@@ -1836,6 +2298,7 @@ const Draft = (() => {
 // ─────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   SettingsManager.init();
+  GlossaryManager.init();
   TextArea.init();
   UI.init();
 
