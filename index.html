@@ -650,14 +650,6 @@
       align-items: center;
       gap: 4px;
     }
-    #stat-audio {
-      min-width: 132px;
-      font-variant-numeric: tabular-nums;
-    }
-    #stat-audio.warn { color: #c98500; }
-    #stat-audio.good { color: #2f9e44; }
-    #stat-audio.bad { color: #e05050; }
-
     /* ── 行動裝置響應式 (RWD) ── */
     @media (max-width: 768px) {
       #toolbar { 
@@ -1080,7 +1072,6 @@
   <div class="left-stats">
     <span class="stat" id="stat-words">📝 0 字</span>
     <span class="stat" id="stat-reconnect" style="display:none"></span>
-    <span class="stat" id="stat-audio" title="麥克風收音健康度；Web Speech 仍由瀏覽器直接取用麥克風">Mic: standby</span>
   </div>
   <div class="center-stats">
     <button id="license-btn" title="查看第三方授權與免責聲明">⚖️ 第三方授權聲明</button>
@@ -1804,7 +1795,7 @@ const RuntimeEnv = (() => {
   }
 
   function isMobile() {
-    return isIOS() || isAndroid() || getRealTouchPoints() > 1;
+    return isIOS() || isAndroid();
   }
 
   return { isIOS, isAndroid, isMobile };
@@ -1820,7 +1811,6 @@ const AudioLevelMonitor = (() => {
   let processedTrack = null;
   let data = null;
   let rafId = 0;
-  let lastToastAt = 0;
   let boosted = false;
 
   function _setStatus(text, level = '') {
@@ -1862,11 +1852,6 @@ const AudioLevelMonitor = (() => {
       _setStatus(`${label}: clipping ${dbText} dB`, 'bad');
     } else if (db < -42) {
       _setStatus(`${label}: too far ${dbText} dB`, 'bad');
-      const now = Date.now();
-      if (now - lastToastAt > 12000) {
-        lastToastAt = now;
-        UI.showToast('手機收到的語音偏小；請靠近手機、接外接麥克風，或把手機放到收音中心。', 12000);
-      }
     } else if (db < -32) {
       _setStatus(`${label}: low ${dbText} dB`, 'warn');
     } else {
@@ -1947,7 +1932,6 @@ const AudioLevelMonitor = (() => {
     destination = null;
     processedTrack = null;
     data = null;
-    lastToastAt = 0;
     boosted = false;
     _setStatus('Mic: standby');
   }
