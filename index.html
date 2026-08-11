@@ -650,6 +650,13 @@
       align-items: center;
       gap: 4px;
     }
+    #stat-audio {
+      min-width: 132px;
+      font-variant-numeric: tabular-nums;
+    }
+    #stat-audio.warn { color: #c98500; }
+    #stat-audio.good { color: #2f9e44; }
+    #stat-audio.bad { color: #e05050; }
 
     /* ── 行動裝置響應式 (RWD) ── */
     @media (max-width: 768px) {
@@ -860,6 +867,9 @@
 <!-- UA Spoofing: attempt to present as Edge desktop -->
 <script>
   (function() {
+    window.__EDGE_SRT_REAL_UA = navigator.userAgent || '';
+    window.__EDGE_SRT_REAL_PLATFORM = navigator.platform || '';
+    window.__EDGE_SRT_REAL_TOUCH_POINTS = navigator.maxTouchPoints || 0;
     const desktopUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0';
     try {
       Object.defineProperty(navigator, 'userAgent', { value: desktopUA, configurable: true, writable: false });
@@ -1070,6 +1080,7 @@
   <div class="left-stats">
     <span class="stat" id="stat-words">📝 0 字</span>
     <span class="stat" id="stat-reconnect" style="display:none"></span>
+    <span class="stat" id="stat-audio" title="麥克風收音健康度；Web Speech 仍由瀏覽器直接取用麥克風">Mic: standby</span>
   </div>
   <div class="center-stats">
     <button id="license-btn" title="查看第三方授權與免責聲明">⚖️ 第三方授權聲明</button>
@@ -1770,6 +1781,180 @@ const WakeLockManager = (() => {
   return { request, release };
 })();
 
+const RuntimeEnv = (() => {
+  function getRealUA() {
+    return window.__EDGE_SRT_REAL_UA || navigator.userAgent || '';
+  }
+
+  function getRealPlatform() {
+    return window.__EDGE_SRT_REAL_PLATFORM || navigator.platform || '';
+  }
+
+  function getRealTouchPoints() {
+    return Number(window.__EDGE_SRT_REAL_TOUCH_POINTS || navigator.maxTouchPoints || 0);
+  }
+
+  function isIOS() {
+    const ua = getRealUA();
+    return /iPad|iPhone|iPod/.test(ua) || (getRealPlatform() === 'MacIntel' && getRealTouchPoints() > 1);
+  }
+
+  function isAndroid() {
+    return /Android/i.test(getRealUA());
+  }
+
+  function isMobile() {
+    return isIOS() || isAndroid() || getRealTouchPoints() > 1;
+  }
+
+  return { isIOS, isAndroid, isMobile };
+})();
+
+const AudioLevelMonitor = (() => {
+  let stream = null;
+  let audioContext = null;
+  let analyser = null;
+  let source = null;
+  let gainNode = null;
+  let destination = null;
+  let processedTrack = null;
+  let data = null;
+  let rafId = 0;
+  let lastToastAt = 0;
+  let boosted = false;
+
+  function _setStatus(text, level = '') {
+    const el = document.getElementById('stat-audio');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.remove('good', 'warn', 'bad');
+    if (level) el.classList.add(level);
+  }
+
+  function _constraints() {
+    return {
+      audio: {
+        echoCancellation: { ideal: false },
+        noiseSuppression: { ideal: false },
+        autoGainControl: { ideal: true },
+        channelCount: { ideal: 1 },
+        sampleRate: { ideal: 48000 }
+      }
+    };
+  }
+
+  function _tick() {
+    if (!analyser || !data) return;
+    analyser.getByteTimeDomainData(data);
+    let sum = 0;
+    let peak = 0;
+    for (let i = 0; i < data.length; i++) {
+      const v = (data[i] - 128) / 128;
+      sum += v * v;
+      const abs = Math.abs(v);
+      if (abs > peak) peak = abs;
+    }
+    const rms = Math.sqrt(sum / data.length);
+    const db = rms > 0 ? 20 * Math.log10(rms) : -100;
+    const dbText = Math.max(-60, Math.round(db));
+    const label = boosted ? 'Boost' : 'Mic';
+    if (peak > 0.92) {
+      _setStatus(`${label}: clipping ${dbText} dB`, 'bad');
+    } else if (db < -42) {
+      _setStatus(`${label}: too far ${dbText} dB`, 'bad');
+      const now = Date.now();
+      if (now - lastToastAt > 12000) {
+        lastToastAt = now;
+        UI.showToast('手機收到的語音偏小；請靠近手機、接外接麥克風，或把手機放到收音中心。', 12000);
+      }
+    } else if (db < -32) {
+      _setStatus(`${label}: low ${dbText} dB`, 'warn');
+    } else {
+      _setStatus(`${label}: good ${dbText} dB`, 'good');
+    }
+    rafId = requestAnimationFrame(_tick);
+  }
+
+  async function start() {
+    stop();
+    if (!RuntimeEnv.isMobile()) {
+      _setStatus('Mic: Edge direct', 'good');
+      return null;
+    }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      _setStatus('Mic: no meter', 'warn');
+      return null;
+    }
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(_constraints());
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) {
+        _setStatus('Mic: no meter', 'warn');
+        return;
+      }
+      audioContext = new AC();
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      gainNode = audioContext.createGain();
+      gainNode.gain.value = RuntimeEnv.isIOS() ? 2.0 : 1.7;
+      destination = audioContext.createMediaStreamDestination();
+      source = audioContext.createMediaStreamSource(stream);
+      source.connect(analyser);
+      source.connect(gainNode);
+      gainNode.connect(destination);
+      processedTrack = destination.stream.getAudioTracks()[0] || null;
+      data = new Uint8Array(analyser.fftSize);
+      _tick();
+      return processedTrack;
+    } catch (err) {
+      _setStatus('Mic: meter off', 'warn');
+      return null;
+    }
+  }
+
+  function getRecognitionTrack() {
+    return RuntimeEnv.isMobile() ? processedTrack : null;
+  }
+
+  function setBoosted(value) {
+    boosted = !!value;
+  }
+
+  function markDirectMode() {
+    _setStatus(RuntimeEnv.isMobile() ? 'Mic: browser direct' : 'Mic: Edge direct', RuntimeEnv.isMobile() ? 'warn' : 'good');
+  }
+
+  function stop() {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+    if (source) {
+      try { source.disconnect(); } catch(e) {}
+      source = null;
+    }
+    if (gainNode) {
+      try { gainNode.disconnect(); } catch(e) {}
+      gainNode = null;
+    }
+    if (audioContext) {
+      audioContext.close().catch(() => {});
+      audioContext = null;
+    }
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      stream = null;
+    }
+    analyser = null;
+    destination = null;
+    processedTrack = null;
+    data = null;
+    lastToastAt = 0;
+    boosted = false;
+    _setStatus('Mic: standby');
+  }
+
+  return { start, stop, getRecognitionTrack, setBoosted, markDirectMode };
+})();
+
 // ─────────────────────────────────────────────
 // SpeechManager (語音辨識管理員) — 永不中斷版
 // ─────────────────────────────────────────────
@@ -1794,12 +1979,28 @@ const SpeechManager = (() => {
     return document.getElementById('lang-select').value;
   }
 
+  function _startRecognitionInstance(r) {
+    const track = AudioLevelMonitor.getRecognitionTrack();
+    if (track && track.readyState === 'live') {
+      try {
+        r.start(track);
+        AudioLevelMonitor.setBoosted(true);
+        return;
+      } catch (e) {
+        AudioLevelMonitor.setBoosted(false);
+        AudioLevelMonitor.stop();
+        AudioLevelMonitor.markDirectMode();
+      }
+    }
+    r.start();
+  }
+
   function _scheduleReconnect() {
     if (!isActive) return;
     reconnectCount++;
     
     // 偵測是否為 iOS 裝置 (iPhone/iPad)
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isIOS = RuntimeEnv.isIOS();
     
     // 針對非 iOS (如 Windows Edge)，維持原本優秀的指數退避重連機制
     // 針對 iOS，為了減少 Apple 系統強制切斷麥克風後的「暖機時間」造成的吃字，將延遲降到最低 (10ms)
@@ -1813,7 +2014,7 @@ const SpeechManager = (() => {
       if (!isActive) return;
       recognition = _createRecognition();
       try {
-        recognition.start();
+        _startRecognitionInstance(recognition);
       } catch(e) {
         // start 失敗時排程再次重連
         _scheduleReconnect();
@@ -1886,7 +2087,7 @@ const SpeechManager = (() => {
     return r;
   }
 
-  function start() {
+  async function start() {
     if (isActive) return;
     reconnectCount = 0;
     isActive = true;
@@ -1894,13 +2095,17 @@ const SpeechManager = (() => {
     hasEnded = false;
     UI.setReconnecting(false);
     WakeLockManager.request();
+    await AudioLevelMonitor.start();
+    if (!isActive) return;
     recognition = _createRecognition();
     if (!recognition) {
       isActive = false;
+      AudioLevelMonitor.stop();
+      WakeLockManager.release();
       return;
     }
     try {
-      recognition.start();
+      _startRecognitionInstance(recognition);
     } catch(e) {
       // start 拋出異常時保留 isActive = true，直接排程重連
       // 用戶可以點擊停止按鈕（stop() 會設 isActive = false 中斷重連迴圈）
@@ -1916,6 +2121,7 @@ const SpeechManager = (() => {
     hasEnded = false;
     UI.setReconnecting(false);
     WakeLockManager.release();
+    AudioLevelMonitor.stop();
     if (recognition) {
       try { recognition.stop(); } catch(e) {}
       recognition = null;
