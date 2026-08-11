@@ -1798,7 +1798,20 @@ const RuntimeEnv = (() => {
     return isIOS() || isAndroid();
   }
 
-  return { isIOS, isAndroid, isMobile };
+  function isEdge() {
+    return /\bEdg\//.test(getRealUA());
+  }
+
+  function isChrome() {
+    const ua = getRealUA();
+    return /\bChrome\//.test(ua) && !isEdge() && !/\bOPR\//.test(ua) && !/\bSamsungBrowser\//.test(ua);
+  }
+
+  function isDesktopChrome() {
+    return isChrome() && !isMobile();
+  }
+
+  return { isIOS, isAndroid, isMobile, isEdge, isChrome, isDesktopChrome };
 })();
 
 const AudioLevelMonitor = (() => {
@@ -1952,6 +1965,9 @@ const SpeechManager = (() => {
   let reconnectCount = 0;
   let connected = false; // 是否正在接收辨識結果
   let hasEnded = false;  // 是否已發生過斷線（onend）
+  let chromeRefreshTimer = null;
+  let chromeRefreshing = false;
+  const CHROME_REFRESH_MS = 25000;
 
   // 致命錯誤：碰到就停止辨識，避免無限重連死循環
   const FATAL_ERRORS = new Set([
@@ -1979,6 +1995,32 @@ const SpeechManager = (() => {
     r.start();
   }
 
+  function _clearChromeRefreshTimer() {
+    if (chromeRefreshTimer) {
+      clearTimeout(chromeRefreshTimer);
+      chromeRefreshTimer = null;
+    }
+  }
+
+  function _scheduleChromeRefresh() {
+    _clearChromeRefreshTimer();
+    if (!isActive || !RuntimeEnv.isDesktopChrome()) return;
+    chromeRefreshTimer = setTimeout(() => {
+      chromeRefreshTimer = null;
+      if (!isActive || !recognition || document.hidden) {
+        _scheduleChromeRefresh();
+        return;
+      }
+      chromeRefreshing = true;
+      try {
+        recognition.stop();
+      } catch (e) {
+        try { recognition.abort(); } catch (err) {}
+        _scheduleReconnect();
+      }
+    }, CHROME_REFRESH_MS);
+  }
+
   function _scheduleReconnect() {
     if (!isActive) return;
     reconnectCount++;
@@ -1999,6 +2041,7 @@ const SpeechManager = (() => {
       recognition = _createRecognition();
       try {
         _startRecognitionInstance(recognition);
+        _scheduleChromeRefresh();
       } catch(e) {
         // start 失敗時排程再次重連
         _scheduleReconnect();
@@ -2034,6 +2077,7 @@ const SpeechManager = (() => {
       connected = true;
       hasEnded = false;
       UI.setReconnecting(false);
+      _scheduleChromeRefresh();
     };
 
     r.onerror = (event) => {
@@ -2064,6 +2108,10 @@ const SpeechManager = (() => {
       connected = false;
       hasEnded = true;
       if (!isActive) return;
+      if (chromeRefreshing) {
+        chromeRefreshing = false;
+        reconnectCount = 0;
+      }
       // 無限制重連，讓語音辨識永不中斷（致命錯誤已在 onerror 中 stop）
       _scheduleReconnect();
     };
@@ -2090,6 +2138,7 @@ const SpeechManager = (() => {
     }
     try {
       _startRecognitionInstance(recognition);
+      _scheduleChromeRefresh();
     } catch(e) {
       // start 拋出異常時保留 isActive = true，直接排程重連
       // 用戶可以點擊停止按鈕（stop() 會設 isActive = false 中斷重連迴圈）
@@ -2106,6 +2155,8 @@ const SpeechManager = (() => {
     UI.setReconnecting(false);
     WakeLockManager.release();
     AudioLevelMonitor.stop();
+    _clearChromeRefreshTimer();
+    chromeRefreshing = false;
     if (recognition) {
       try { recognition.stop(); } catch(e) {}
       recognition = null;
