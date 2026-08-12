@@ -2094,18 +2094,6 @@ const SpeechManager = (() => {
   }
 
   function _startRecognitionInstance(r) {
-    const track = AudioLevelMonitor.getRecognitionTrack();
-    if (track && track.readyState === 'live') {
-      try {
-        r.start(track);
-        AudioLevelMonitor.setBoosted(true);
-        return;
-      } catch (e) {
-        AudioLevelMonitor.setBoosted(false);
-        AudioLevelMonitor.stop();
-        AudioLevelMonitor.markDirectMode();
-      }
-    }
     r.start();
   }
 
@@ -2241,12 +2229,9 @@ const SpeechManager = (() => {
     hasEnded = false;
     UI.setReconnecting(false);
     WakeLockManager.request();
-    await AudioLevelMonitor.start();
-    if (!isActive) return;
     recognition = _createRecognition();
     if (!recognition) {
       isActive = false;
-      AudioLevelMonitor.stop();
       WakeLockManager.release();
       return;
     }
@@ -2268,7 +2253,6 @@ const SpeechManager = (() => {
     hasEnded = false;
     UI.setReconnecting(false);
     WakeLockManager.release();
-    AudioLevelMonitor.stop();
     _clearChromeRefreshTimer();
     chromeRefreshing = false;
     if (recognition) {
@@ -2524,10 +2508,6 @@ const UI = (() => {
       micSelect.addEventListener('change', e => {
         _saveSelectedMicDeviceId(e.target.value);
         displayCurrentMic(false);
-        if (SpeechManager.getIsActive()) {
-          UI.showToast('🔄 已切換麥克風來源');
-          SpeechManager.restart();
-        }
       });
     }
 
