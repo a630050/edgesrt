@@ -71,7 +71,10 @@
       --accent-glow: var(--theme-night-accent-glow);
       --shadow-lg: 0 8px 32px rgba(0,0,0,0.5);
       --shadow-sm: 0 2px 8px rgba(0,0,0,0.3);
+      --transcript-bg: #000000;
+      --transcript-fg: #ffd700;
       --interim-color: #ffd700; /* 黃色 (Night mode interim) */
+      color-scheme: dark;
     }
 
     /* 🌊 深海 (Ocean) */
@@ -1078,6 +1081,8 @@
       <label>視覺主題</label>
       <select id="set-theme" class="toolbar-select" style="width: 100%; height: 36px; padding: 0 10px;">
         <option value="default">☀️ 白天 (預設)</option>
+        <option value="system">🌗 跟隨系統</option>
+        <option value="night">🌙 夜晚</option>
         <option value="ocean">🌊 深海 (Ocean)</option>
         <option value="parchment">📜 羊皮 (Parchment)</option>
         <option value="forest">🌿 森林 (Forest)</option>
@@ -1177,6 +1182,10 @@ const SettingsManager = (() => {
 
   let current = { ...DEFAULTS };
 
+  function systemPrefersDark() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  }
+
   function applyAll(s) {
     const root = document.documentElement;
     root.style.setProperty('--transcript-font', s.fontFamily);
@@ -1196,6 +1205,20 @@ const SettingsManager = (() => {
       root.style.setProperty('--transcript-fg', s.fgColor);
       if (bgRow) bgRow.style.opacity = '1';
       if (fgRow) fgRow.style.opacity = '1';
+    } else if (s.theme === 'system') {
+      root.removeAttribute('data-theme');
+      root.classList.toggle('night-theme', systemPrefersDark());
+      root.style.removeProperty('--transcript-bg');
+      root.style.removeProperty('--transcript-fg');
+      if (bgRow) bgRow.style.opacity = '0.5';
+      if (fgRow) fgRow.style.opacity = '0.5';
+    } else if (s.theme === 'night') {
+      root.removeAttribute('data-theme');
+      root.classList.add('night-theme');
+      root.style.removeProperty('--transcript-bg');
+      root.style.removeProperty('--transcript-fg');
+      if (bgRow) bgRow.style.opacity = '0.5';
+      if (fgRow) fgRow.style.opacity = '0.5';
     } else if (s.theme === 'default') {
       root.removeAttribute('data-theme');
       root.classList.toggle('night-theme', !!s.nightMode);
@@ -1255,8 +1278,18 @@ const SettingsManager = (() => {
 
     // 綁定控制項事件
     document.getElementById('set-theme').addEventListener('change', e => {
-      save({ theme: e.target.value });
+      const theme = e.target.value;
+      save({ theme, nightMode: theme === 'night' });
     });
+
+    if (window.matchMedia) {
+      const media = window.matchMedia('(prefers-color-scheme: dark)');
+      const onSystemThemeChange = () => {
+        if (current.theme === 'system') applyAll(current);
+      };
+      if (media.addEventListener) media.addEventListener('change', onSystemThemeChange);
+      else if (media.addListener) media.addListener(onSystemThemeChange);
+    }
     
     // 點選預覽塊時觸發隱藏的 <input type="color">
     document.getElementById('bg-preview').addEventListener('click', () => {
