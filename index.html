@@ -327,11 +327,6 @@
       max-width: 110px;
     }
 
-    #mic-select {
-      display: none;
-      max-width: 180px;
-    }
-
     #author-btn {
       background: transparent;
       color: var(--fg-muted);
@@ -693,7 +688,6 @@
       #instruction-btn { grid-area: help; }
       #start-btn { grid-area: start; }
       .mic-status { grid-area: mic; }
-      #mic-select { grid-area: mic; }
       #lang-select { grid-area: lang; }
       #clear-btn { grid-area: clear; }
       #glossary-btn { grid-area: glossary; }
@@ -729,15 +723,17 @@
         font-size: 14px;
       }
       .mic-status {
-        display: none;
+        min-width: 0;
+        max-width: none;
+        height: 38px;
+        padding: 0 10px;
+        font-size: 12px;
       }
-      #mic-select,
       #lang-select {
-        display: block;
         width: 100%;
         max-width: none;
         height: 38px;
-        font-size: 12px;
+        font-size: 13px;
       }
       #clear-btn,
       #glossary-btn {
@@ -960,9 +956,6 @@
     <div class="mic-status" title="此為當前使用的系統麥克風">
       <span id="current-mic-name">🎤 讀取麥克風中...</span>
     </div>
-    <select class="toolbar-select" id="mic-select" title="麥克風來源">
-      <option value="default">🎤 系統預設</option>
-    </select>
     <select class="toolbar-select" id="lang-select" title="辨識語言">
       <option value="zh-TW">繁體中文</option>
       <option value="en-US">English</option>
@@ -1944,19 +1937,14 @@ const AudioLevelMonitor = (() => {
   }
 
   function _constraints() {
-    const selectedDeviceId = (typeof UI !== 'undefined' && UI.getSelectedMicDeviceId) ? UI.getSelectedMicDeviceId() : '';
-    const audio = {
-      echoCancellation: { ideal: false },
-      noiseSuppression: { ideal: false },
-      autoGainControl: { ideal: true },
-      channelCount: { ideal: 1 },
-      sampleRate: { ideal: 48000 }
-    };
-    if (selectedDeviceId) {
-      audio.deviceId = { exact: selectedDeviceId };
-    }
     return {
-      audio
+      audio: {
+        echoCancellation: { ideal: false },
+        noiseSuppression: { ideal: false },
+        autoGainControl: { ideal: true },
+        channelCount: { ideal: 1 },
+        sampleRate: { ideal: 48000 }
+      }
     };
   }
 
@@ -2312,71 +2300,24 @@ const UI = (() => {
   }
 
   let lastMicLabel = '';
-  const MIC_DEVICE_KEY = 'edgesrt_mic_device_id';
-  let selectedMicDeviceId = 'default';
-
-  function getSelectedMicDeviceId() {
-    return selectedMicDeviceId && selectedMicDeviceId !== 'default' ? selectedMicDeviceId : '';
-  }
-
-  function _loadSelectedMicDeviceId() {
-    try {
-      selectedMicDeviceId = localStorage.getItem(MIC_DEVICE_KEY) || 'default';
-    } catch(e) {
-      selectedMicDeviceId = 'default';
-    }
-  }
-
-  function _saveSelectedMicDeviceId(value) {
-    selectedMicDeviceId = value || 'default';
-    try { localStorage.setItem(MIC_DEVICE_KEY, selectedMicDeviceId); } catch(e) {}
-  }
 
   // 用 enumerateDevices 讀取麥克風名稱（權限取得後不需開串流就有名稱），
   // 避免 getUserMedia 在錄音中打斷進行中的語音辨識
   async function displayCurrentMic(autoRestart = false) {
     const el = document.getElementById('current-mic-name');
-    const select = document.getElementById('mic-select');
-    if (!el && !select) return;
+    if (!el) return;
     if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
-      if (el) el.textContent = '🎤 系統預設麥克風';
+      el.textContent = '🎤 系統預設麥克風';
       return;
     }
     let label = '';
     let micCount = 0;
-    let selectedStillExists = selectedMicDeviceId === 'default';
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const inputs = devices.filter(d => d.kind === 'audioinput');
       micCount = inputs.length;
-
-      if (select) {
-        const previous = selectedMicDeviceId || 'default';
-        select.innerHTML = '';
-        const defaultOpt = document.createElement('option');
-        defaultOpt.value = 'default';
-        defaultOpt.textContent = '🎤 系統預設';
-        select.appendChild(defaultOpt);
-
-        inputs.forEach((input, index) => {
-          if (!input.deviceId || input.deviceId === 'default') return;
-          const opt = document.createElement('option');
-          opt.value = input.deviceId;
-          opt.textContent = input.label || `🎤 麥克風 ${index + 1}`;
-          select.appendChild(opt);
-          if (input.deviceId === previous) selectedStillExists = true;
-        });
-
-        if (!selectedStillExists) {
-          selectedMicDeviceId = 'default';
-        }
-        select.value = selectedMicDeviceId;
-      }
-
-      const selected = selectedMicDeviceId && selectedMicDeviceId !== 'default'
-        ? inputs.find(d => d.deviceId === selectedMicDeviceId)
-        : null;
-      const def = selected || inputs.find(d => d.deviceId === 'default');
+      // 'default' 代表系統目前的預設輸入裝置
+      const def = inputs.find(d => d.deviceId === 'default');
       label = (def && def.label) ? def.label : '';
       if (!label) {
         const labeled = inputs.find(d => d.label);
@@ -2385,7 +2326,7 @@ const UI = (() => {
     } catch (e) { /* 忽略 */ }
 
     if (label) {
-      if (el) el.textContent = '🎤 ' + label;
+      el.textContent = '🎤 ' + label;
       if (lastMicLabel && lastMicLabel !== label) {
         // 偵測到麥克風改變
         if (autoRestart && SpeechManager.getIsActive()) {
@@ -2395,9 +2336,9 @@ const UI = (() => {
       }
       lastMicLabel = label;
     } else if (micCount > 0) {
-      if (el) el.textContent = '🎤 系統預設麥克風';
+      el.textContent = '🎤 系統預設麥克風';
     } else {
-      if (el) el.textContent = '🎤 找不到麥克風';
+      el.textContent = '🎤 找不到麥克風';
     }
   }
 
@@ -2500,16 +2441,7 @@ const UI = (() => {
 
   function init() {
     checkAPI();
-    _loadSelectedMicDeviceId();
     displayCurrentMic();
-
-    const micSelect = document.getElementById('mic-select');
-    if (micSelect) {
-      micSelect.addEventListener('change', e => {
-        _saveSelectedMicDeviceId(e.target.value);
-        displayCurrentMic(false);
-      });
-    }
 
     // 當網頁重新獲得焦點，或系統裝置改變時，檢查麥克風是否變更
     window.addEventListener('focus', () => {
@@ -2517,7 +2449,7 @@ const UI = (() => {
     });
     if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
       navigator.mediaDevices.addEventListener('devicechange', () => {
-        displayCurrentMic(SpeechManager.getIsActive());
+        if (SpeechManager.getIsActive()) displayCurrentMic(true);
       });
     }
 
@@ -2650,7 +2582,7 @@ const UI = (() => {
     });
   }
 
-  return { init, checkAPI, startRecordingUI, stopRecordingUI, toggleSettings, showToast, updateWordCount, setReconnecting, getSelectedMicDeviceId };
+  return { init, checkAPI, startRecordingUI, stopRecordingUI, toggleSettings, showToast, updateWordCount, setReconnecting };
 })();
 
 
