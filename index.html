@@ -199,6 +199,21 @@
       flex-shrink: 0;
     }
 
+    .mic-status {
+      display: flex;
+      align-items: center;
+      padding: 4px 10px;
+      background: var(--bg-elevated);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-medium);
+      font-size: 12px;
+      color: var(--fg-secondary);
+      max-width: 250px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     /* ── 工具列分隔線 ── */
     .toolbar-divider {
       width: 1px;
@@ -652,23 +667,77 @@
     }
     /* ── 行動裝置響應式 (RWD) ── */
     @media (max-width: 768px) {
-      #toolbar { 
-        padding: 8px 10px; 
-        gap: 6px; 
+      #toolbar {
+        display: grid;
+        grid-template-columns: 40px 88px minmax(0, 1fr) 40px 40px 40px;
+        grid-template-areas:
+          "help start mic mic copy settings"
+          "lang lang clear glossary glossary save";
+        align-items: stretch;
+        gap: 6px;
+        padding: 6px 8px;
+        min-height: 0;
       }
-      #toolbar .left-group { 
-        gap: 4px; 
+      #toolbar .left-group,
+      #toolbar .right-group {
+        display: contents;
       }
-      /* 在手機上隱藏較不重要或佔空間的元素 */
-      #mic-select, #author-btn, #license-btn { 
-        display: none; 
+      #instruction-btn { grid-area: help; }
+      #start-btn { grid-area: start; }
+      .mic-status { grid-area: mic; }
+      #lang-select { grid-area: lang; }
+      #clear-btn { grid-area: clear; }
+      #glossary-btn { grid-area: glossary; }
+      #copy-btn { grid-area: copy; }
+      #save-btn { grid-area: save; }
+      #settings-btn { grid-area: settings; }
+      #author-btn,
+      #license-btn,
+      #rec-dot,
+      .toolbar-divider {
+        display: none;
       }
-      .btn { 
-        padding: 6px 10px; 
-        font-size: 12px; 
+      .btn,
+      #settings-btn {
+        min-height: 38px;
+        padding: 0 10px;
+        font-size: 13px;
+        border-radius: 10px;
       }
-      #text-area { 
-        padding: 16px 20px; 
+      .btn-icon,
+      #settings-btn,
+      .btn-copy,
+      .btn-save {
+        width: 40px;
+        min-width: 40px;
+        padding: 0;
+        font-size: 18px;
+      }
+      #start-btn {
+        min-width: 0;
+        width: 100%;
+        padding: 0 12px;
+        font-size: 14px;
+      }
+      .mic-status {
+        min-width: 0;
+        max-width: none;
+        height: 38px;
+        padding: 0 10px;
+        font-size: 12px;
+      }
+      #lang-select {
+        width: 100%;
+        max-width: none;
+        height: 38px;
+        font-size: 13px;
+      }
+      #clear-btn,
+      #glossary-btn {
+        width: 100%;
+      }
+      #transcript {
+        padding: 14px 16px 88px;
       }
       
       /* 設定面板改為從底部滑出的 Bottom Sheet */
@@ -881,7 +950,7 @@
     <button class="btn btn-icon" id="instruction-btn" title="使用說明">❓</button>
     <span id="rec-dot"></span>
     <button class="btn" id="start-btn">▶ 啟動</button>
-    <div style="display:flex;align-items:center;padding:4px 10px;background:var(--bg-elevated);border-radius:var(--radius-sm);border:1px solid var(--border-medium);font-size:12px;color:var(--fg-secondary);max-width:250px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="此為當前使用的系統麥克風">
+    <div class="mic-status" title="此為當前使用的系統麥克風">
       <span id="current-mic-name">🎤 讀取麥克風中...</span>
     </div>
     <select class="toolbar-select" id="lang-select" title="辨識語言">
