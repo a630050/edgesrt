@@ -2187,8 +2187,7 @@ const SpeechManager = (() => {
         return;
       }
       if (err === 'network') {
-        // 網路問題是暫時性的：繼續重連，但提示訊息要節流避免轟炸
-        UI.showToast('語音辨識需要網路連線，正在重試...', 5000);
+        // 網路問題是暫時性的：靜默交由 onend 繼續重連，避免干擾字幕畫面。
         return;
       }
       // no-speech / aborted / 其他未知錯誤：正常短暫現象，交由 onend 繼續重連
@@ -2229,7 +2228,6 @@ const SpeechManager = (() => {
     } catch(e) {
       // start 拋出異常時保留 isActive = true，直接排程重連
       // 用戶可以點擊停止按鈕（stop() 會設 isActive = false 中斷重連迴圈）
-      UI.showToast('語音辨識啟動失敗，正在重試...', 3000);
       _scheduleReconnect();
       return;
     }
@@ -2330,7 +2328,6 @@ const UI = (() => {
       if (lastMicLabel && lastMicLabel !== label) {
         // 偵測到麥克風改變
         if (autoRestart && SpeechManager.getIsActive()) {
-          UI.showToast('🔄 偵測到麥克風變更，已自動切換來源');
           SpeechManager.restart();
         }
       }
@@ -2574,7 +2571,6 @@ const UI = (() => {
       if (document.visibilityState === 'visible' && SpeechManager.getIsActive() && SpeechManager.needsRecovery()) {
         setTimeout(() => {
           if (SpeechManager.getIsActive() && SpeechManager.needsRecovery()) {
-            UI.showToast('🔄 偵測到辨識中斷，正在恢復...');
             SpeechManager.restart();
           }
         }, 400);
