@@ -2055,11 +2055,78 @@ const AudioLevelMonitor = (() => {
 })();
 
 // ─────────────────────────────────────────────
+// AudioDetector (麥克風音量偵測)
+// ─────────────────────────────────────────────
+// 用 Web Audio API 即時偵測麥克風音量，
+// 供 SpeechManager 的 heartbeat 機制判斷「有聲音但沒輸出文字」的僵死狀態。
+const AudioDetector = (() => {
+  let audioContext = null;
+  let analyser = null;
+  let dataArray = null;
+  let currentVolume = 0;
+  let initialized = false;
+  let micStream = null;
+
+  async function init() {
+    if (initialized) return;
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioContext.createMediaStreamSource(micStream);
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      dataArray = new Uint8Array(analyser.frequencyBinCount);
+      initialized = true;
+      _pollVolume();
+    } catch (e) {
+      // 使用者拒絕麥克風或不支援 Web Audio API：靜默失敗
+    }
+  }
+
+  function _pollVolume() {
+    if (!analyser || !dataArray) return;
+    analyser.getByteFrequencyData(dataArray);
+    let sum = 0;
+    for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+    currentVolume = sum / dataArray.length;
+    if (initialized) requestAnimationFrame(_pollVolume);
+  }
+
+  function getVolume() {
+    return initialized ? currentVolume : 0;
+  }
+
+  function isAudioDetected() {
+    return initialized && currentVolume > 2.0; // 靜音約 0–2，有聲音通常 >5
+  }
+
+  function destroy() {
+    initialized = false;
+    if (micStream) {
+      micStream.getTracks().forEach(t => t.stop());
+      micStream = null;
+    }
+    if (audioContext) {
+      audioContext.close().catch(() => {});
+      audioContext = null;
+    }
+    analyser = null;
+    dataArray = null;
+    currentVolume = 0;
+  }
+
+  return { init, getVolume, isAudioDetected, destroy };
+})();
+
+// ─────────────────────────────────────────────
 // SpeechManager (語音辨識管理員) — 永不中斷版
 // ─────────────────────────────────────────────
 // Edge 的 SpeechRecognition API 約 30 秒會自動斷開連線（無論有無講話）。
 // 本模組的策略是：移除靜音計時器，完全依賴 onend 自動重連，
 // 且重連無次數限制，讓辨識可以持續不斷運作。
+// 新增：heartbeat 機制 — 偵測「有聲音但長時間沒輸出文字」的僵死狀態，
+// 透過 AudioDetector 偵測麥克風音量並自動重啟。
 // ─────────────────────────────────────────────
 const SpeechManager = (() => {
   let recognition = null;
@@ -2067,6 +2134,8 @@ const SpeechManager = (() => {
   let reconnectCount = 0;
   let connected = false; // 是否正在接收辨識結果
   let hasEnded = false;  // 是否已發生過斷線（onend）
+  let lastResultTime = 0; // 上次收到辨識結果的時間戳（用於僵死偵測）
+  let heartbeatTimer = null; // 心跳計時器 ID
   let chromeRefreshTimer = null;
   let chromeRefreshing = false;
   const CHROME_REFRESH_MS = 25000;
@@ -2130,6 +2199,7 @@ const SpeechManager = (() => {
       if (!isActive) return;
       recognition = _createRecognition();
       try {
+        lastResultTime = Date.now(); // 重連後重置計時，避免 heartbeat 立刻觸發
         _startRecognitionInstance(recognition);
         _scheduleChromeRefresh();
       } catch(e) {
@@ -2162,8 +2232,9 @@ const SpeechManager = (() => {
         UI.updateWordCount();
       }
       if (interim) TextArea.updateInterim(GlossaryManager.substitute(interim));
-      // 有收到結果就重置重連計數，並恢復正常錄音狀態
+      // 有收到結果就重置重連計數，並記錄時間戳，恢復正常錄音狀態
       reconnectCount = 0;
+      lastResultTime = Date.now();
       connected = true;
       hasEnded = false;
       UI.setReconnecting(false);
@@ -2208,14 +2279,60 @@ const SpeechManager = (() => {
     return r;
   }
 
+  function _startHeartbeat() {
+    _stopHeartbeat();
+    heartbeatTimer = setInterval(() => {
+      if (!isActive) return;
+      // 條件：麥克風有聲音 + 超過 5 秒沒收到結果
+      if (AudioDetector.isAudioDetected() && lastResultTime > 0 && Date.now() - lastResultTime > 5000) {
+        UI.showToast('🔄 偵測到語音僵死（有聲音但無輸出），正在重啟...');
+        UI.setReconnecting(true, 1);
+        _hardRestart();
+      }
+    }, 5000);
+  }
+
+  function _stopHeartbeat() {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  }
+
+  // 硬重啟：直接 stop 再 start，比 soft restart 更徹底
+  function _hardRestart() {
+    _stopHeartbeat();
+    if (recognition) {
+      try { recognition.onend = null; recognition.onerror = null; recognition.onresult = null; recognition.stop(); } catch(e) {}
+      recognition = null;
+    }
+    connected = false;
+    reconnectCount = 0;
+    lastResultTime = Date.now(); // 重置計時，避免重啟後立刻再次觸發
+    hasEnded = false;
+    setTimeout(() => {
+      if (!isActive) return;
+      recognition = _createRecognition();
+      try {
+        _startRecognitionInstance(recognition);
+        _startHeartbeat();
+        _scheduleChromeRefresh();
+      } catch(e) {
+        _scheduleReconnect();
+      }
+    }, 300);
+  }
+
   async function start() {
     if (isActive) return;
     reconnectCount = 0;
     isActive = true;
     connected = false;
     hasEnded = false;
+    lastResultTime = Date.now(); // 初始時間戳，避免啟動後立刻觸發僵死偵測
     UI.setReconnecting(false);
     WakeLockManager.request();
+    AudioDetector.init(); // 啟動麥克風音量偵測
     recognition = _createRecognition();
     if (!recognition) {
       isActive = false;
@@ -2224,10 +2341,10 @@ const SpeechManager = (() => {
     }
     try {
       _startRecognitionInstance(recognition);
+      _startHeartbeat();
       _scheduleChromeRefresh();
     } catch(e) {
-      // start 拋出異常時保留 isActive = true，直接排程重連
-      // 用戶可以點擊停止按鈕（stop() 會設 isActive = false 中斷重連迴圈）
+      UI.showToast('語音辨識啟動失敗，正在重試...', 3000);
       _scheduleReconnect();
       return;
     }
@@ -2238,9 +2355,11 @@ const SpeechManager = (() => {
     connected = false;
     hasEnded = false;
     UI.setReconnecting(false);
+    _stopHeartbeat();
     WakeLockManager.release();
     _clearChromeRefreshTimer();
     chromeRefreshing = false;
+    AudioDetector.destroy(); // 停止麥克風音量偵測，釋放資源
     if (recognition) {
       try { recognition.stop(); } catch(e) {}
       recognition = null;
@@ -2272,7 +2391,11 @@ const SpeechManager = (() => {
     }, 300);
   }
 
-  return { start, stop, restart, getIsActive, isConnected, needsRecovery };
+  function getLastResultTime() {
+    return lastResultTime;
+  }
+
+  return { start, stop, restart, getIsActive, isConnected, needsRecovery, getLastResultTime };
 })();
 
 
